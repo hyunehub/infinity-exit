@@ -65,7 +65,7 @@ export class View {
     const sc = this.scene, sim = this.sim; this.assets = assets || {};
     const templates = makeCarTemplates();
     if (this.assets.lot) optimizeLot(this.assets.lot.scene); if (this.assets.person) mergePerson(this.assets.person);
-    this.lot = this.assets.lot ? this.assets.lot.scene : buildPlaceholderLot(templates); sc.add(this.lot); this.realLot = !!this.assets.lot; this.ground = new Ground(sc);
+    this.lot = this.assets.lot ? this.assets.lot.scene : buildPlaceholderLot(templates); sc.add(this.lot); this.realLot = !!this.assets.lot; this.ground = new Ground(sc); if (this.realLot) this.moveEvBays();
     // the street-level sky panel of the lot model floats above the ground section: hide it
     this.lot.traverse((o) => { if (o.isMesh) { const ms = Array.isArray(o.material) ? o.material : [o.material]; if (ms.some((m) => m && /SkyGlow|Daylight/i.test(m.name || '')) || /SkyGlow|Daylight/i.test(o.name)) o.visible = false; } });
     // daylight apron and sky glow beyond the ramp exit are baked into the merged emissive mesh: drop those triangles (the ground section is the street now)
@@ -110,17 +110,37 @@ export class View {
     this.arrows = new FloorArrows(sc); this.meshov = new MeshOverlay(sc);
     this.applyQuality(); this.applyPower(true, true); this.syncSim(); this.ready = true;
   }
+  // The lot model has its EV chargers at the middle bays (y = +-1.5), but the burning EVs park in the corner bays of each
+  // zone (y = +-6.5), as on the physical model. Move the four chargers to the corner bays and paint those bays as EV charging bays.
+  moveEvBays() {
+    const v = new THREE.Vector3(), inv = new THREE.Matrix4(); this.lot.updateMatrixWorld(true);
+    this.lot.traverse((o) => {
+      if (!o.isMesh || /^(S_WallPaint|S_Floor|S_Concrete|S_RampSurface)$/.test(o.name) || !o.geometry.attributes.position) return;
+      const P = o.geometry.attributes.position; inv.copy(o.matrixWorld).invert(); let moved = false;
+      for (let k = 0; k < P.count; k++) { v.fromBufferAttribute(P, k).applyMatrix4(o.matrixWorld); const sy = -v.z;
+        if (Math.abs(v.x) >= 13.45 && Math.abs(v.x) < 13.99 && v.y > 0.3 && v.y < 1.8 && Math.abs(Math.abs(sy) - 1.5) < 0.45) { v.z -= Math.sign(sy) * 5; v.applyMatrix4(inv); P.setXYZ(k, v.x, v.y, v.z); moved = true; } }
+      if (moved) { P.needsUpdate = true; o.geometry.computeBoundingSphere(); o.geometry.computeBoundingBox(); }
+    });
+    const c = document.createElement('canvas'); c.width = 256; c.height = 512; const g = c.getContext('2d');
+    g.fillStyle = '#2457c5'; g.fillRect(0, 0, 256, 512); g.strokeStyle = '#f4f6f8'; g.lineWidth = 10; g.strokeRect(5, 5, 246, 502);
+    g.fillStyle = 'rgba(255,255,255,.92)'; g.font = '900 120px "IBM Plex Sans KR","Noto Sans KR",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.save(); g.translate(128, 330); g.rotate(-Math.PI / 2); g.fillText('EV', 0, 0); g.restore();
+    g.beginPath(); g.moveTo(140, 70); g.lineTo(96, 150); g.lineTo(130, 150); g.lineTo(112, 220); g.lineTo(166, 128); g.lineTo(132, 128); g.lineTo(150, 70); g.closePath(); g.fill(); // charging bolt
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.75, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    for (const [x, y] of [[-10, 6.5], [10, 6.5], [-10, -6.5], [10, -6.5]]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 4.8), mat); m.rotation.set(-Math.PI / 2, 0, x < 0 ? Math.PI / 2 : -Math.PI / 2); m.position.set(x, 0.012, -y); m.renderOrder = 1; m.name = 'EV_BAY'; this.scene.add(m); }
+  }
   addSosZones() {
     const c = document.createElement('canvas'); c.width = 384; c.height = 352; const g = c.getContext('2d');
-    g.fillStyle = 'rgba(255,200,40,0.16)'; g.fillRect(0, 0, 384, 352);
+    g.fillStyle = '#39443f'; g.fillRect(0, 0, 384, 352); g.fillStyle = 'rgba(255,200,40,0.14)'; g.fillRect(0, 0, 384, 352); // opaque: hides the old EV paint under it
     g.save(); g.beginPath(); g.rect(8, 8, 368, 336); g.clip(); g.strokeStyle = 'rgba(255,205,50,0.55)'; g.lineWidth = 9; for (let k = -352; k < 384 + 352; k += 40) { g.beginPath(); g.moveTo(k, 352); g.lineTo(k + 352, 0); g.stroke(); } g.restore();
     g.strokeStyle = 'rgba(255,214,60,0.95)'; g.lineWidth = 10; g.strokeRect(5, 5, 374, 342);
     g.fillStyle = 'rgba(20,16,4,0.62)'; g.fillRect(52, 138, 280, 76); g.fillStyle = '#ffd43a'; g.font = '700 46px "Noto Sans KR","Malgun Gothic",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SOS 대기 구역', 192, 176);
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
     this.zoneMats = []; this.zones = [];
     for (const id of ['S1', 'S2']) {
-      const d = NODE_DEFS[id]; const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); const m = new THREE.Mesh(new THREE.PlaneGeometry(4.0, 3.4), mat);
-      m.rotation.x = -Math.PI / 2; m.position.set(d.x - d.side * 2.0, 0.025, 0); m.renderOrder = 3; m.name = 'SOS_ZONE_' + id; this.scene.add(m); this.zoneMats.push(mat); this.zones.push(m);
+      const d = NODE_DEFS[id]; const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, metalness: 0, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }); const m = new THREE.Mesh(new THREE.PlaneGeometry(6.6, 5.7), mat); // covers both middle bays of the side (old EV paint)
+      m.rotation.x = -Math.PI / 2; m.position.set(d.x - d.side * 3.4, 0.025, 0); m.renderOrder = 3; m.name = 'SOS_ZONE_' + id; this.scene.add(m); this.zoneMats.push(mat); this.zones.push(m);
     }
   }
   syncSim() { // after sim.reset()

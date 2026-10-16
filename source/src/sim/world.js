@@ -45,9 +45,9 @@ export const MESH_EDGES = [
 
 export const CARS = {
   carA: { x: -10, y: 6.5, zone: 'A', type: 'CAR_EV_HATCH', color: 0x2c6fd6 },
-  carB: { x: 10, y: 6.5, zone: 'B', type: 'CAR_SUV', color: 0xd8dde3 },
+  carB: { x: 10, y: 6.5, zone: 'B', type: 'CAR_EV_HATCH', color: 0xd8dde3 },
   carC: { x: -10, y: -6.5, zone: 'C', type: 'CAR_EV_HATCH', color: 0xe9e9e4 },
-  carD: { x: 10, y: -6.5, zone: 'D', type: 'CAR_SEDAN', color: 0x3a3f48 },
+  carD: { x: 10, y: -6.5, zone: 'D', type: 'CAR_EV_HATCH', color: 0x3a3f48 },
   carR: { x: 2, y: 8.5, zone: 'R', type: 'CAR_EV_HATCH', color: 0xc9d3dc },
 };
 export const FIRE_KEYS = { A: 'carA', B: 'carB', C: 'carC', D: 'carD', R: 'carR' };
