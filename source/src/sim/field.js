@@ -1,0 +1,101 @@
+// Two-layer smoke field over lot + ramp. c = ceiling-layer attenuation (%/m), th = layer thickness from ceiling (m).
+import { FIRE_R } from './world.js';
+export const FCS = 0.5, FX0 = -14, FY0 = -10, FW = 56, FH = 103; // y up to 41.5
+const N = FW * FH;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const sstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+export class Field {
+  constructor() {
+    this.c = new Float32Array(N); this.th = new Float32Array(N);
+    this.c2 = new Float32Array(N); this.th2 = new Float32Array(N);
+    this.ux = new Float32Array(N); this.uy = new Float32Array(N);       // ceiling-layer base airflow (m/s)
+    this.jx = new Float32Array(N); this.jy = new Float32Array(N);       // ceiling-jet from fires (scaled by growth)
+    this.air = new Uint8Array(N);
+    for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const x = FX0 + (i + 0.5) * FCS, y = FY0 + (j + 0.5) * FCS; this.air[j * FW + i] = (y <= 10 || Math.abs(x) <= 3.5) ? 1 : 0; }
+    this.version = 0; this.wind = [0, 0]; this.fires = []; this.forces = []; this.srcScale = 1; this.jetK = 0;
+    this.S = 6.0;  // source strength
+    this.D = 0.3; this.lambda = 0.0015; this.g = 0.016;
+    this.rebuildFlow();
+  }
+  clear() { this.c.fill(0); this.th.fill(0); this.version++; }
+  idx(x, y) { const i = Math.floor((x - FX0) / FCS), j = Math.floor((y - FY0) / FCS); return (i < 0 || j < 0 || i >= FW || j >= FH) ? -1 : j * FW + i; }
+  setWind(w) { this.wind = w; this.rebuildFlow(); }
+  setFires(f) { this.fires = f; this.rebuildFlow(); }
+  rebuildFlow() {
+    const [wx, wy] = this.wind;
+    for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) {
+      const k = j * FW + i; if (!this.air[k]) { this.ux[k] = this.uy[k] = this.jx[k] = this.jy[k] = 0; continue; }
+      const x = FX0 + (i + 0.5) * FCS, y = FY0 + (j + 0.5) * FCS;
+      let ux, uy;
+      if (y > 10) { ux = 0; uy = 0.9 + wy * 0.6; }                  // ramp: exhaust draft (chimney)
+      else {
+        const dx = 0 - x, dy = 10 - y, d = Math.hypot(dx, dy) + 1e-3, m = 0.45 / (1 + d / 14);
+        ux = dx / d * m + wx; uy = dy / d * m + wy;
+        if (y > 7 && Math.abs(x) < 4) uy += 0.4;                    // converge into the mouth
+      }
+      this.ux[k] = ux; this.uy[k] = uy;
+      let jx = 0, jy = 0;
+      for (const f of this.fires) { const dx = x - f.x, dy = y - f.y, d = Math.hypot(dx, dy) + 1e-3, m = 1.1 * Math.exp(-d / 6); jx += dx / d * m; jy += dy / d * m; }
+      this.jx[k] = jx; this.jy[k] = jy;
+    }
+  }
+  seedBlob(cx, cy, c0, sigma, th0) {
+    for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const k = j * FW + i; if (!this.air[k] || FY0 + (j + .5) * FCS > 10) continue; const x = FX0 + (i + .5) * FCS, y = FY0 + (j + .5) * FCS; const g = Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sigma * sigma)); const v = c0 * g; if (v > this.c[k]) { this.c[k] = v; this.th[k] = Math.max(this.th[k], th0 * Math.min(1, g * 1.6)); } }
+    this.version++;
+  }
+  seedAll(c0, th0, ymax = 10) { for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const k = j * FW + i; if (!this.air[k] || FY0 + (j + .5) * FCS > ymax) continue; this.c[k] = Math.max(this.c[k], c0); this.th[k] = Math.max(this.th[k], th0); } this.version++; }
+  // bilinear sample with wall fallback
+  _s(a, fx, fy, k0) {
+    const x = fx - 0.5, y = fy - 0.5, i0 = Math.floor(x), j0 = Math.floor(y), tx = x - i0, ty = y - j0;
+    const g = (i, j) => { if (j >= FH) return 0; if (i < 0 || j < 0 || i >= FW) return a[k0]; const k = j * FW + i; return this.air[k] ? a[k] : a[k0]; };
+    return (g(i0, j0) * (1 - tx) + g(i0 + 1, j0) * tx) * (1 - ty) + (g(i0, j0 + 1) * (1 - tx) + g(i0 + 1, j0 + 1) * tx) * ty;
+  }
+  step(dt, t) {
+    const { c, th, c2, th2, air } = this; const J = this.jetK;
+    // sources
+    for (const f of this.fires) {
+      const age = t - f.t0; if (age < 0) continue; const gr = Math.min(1, (age / 40) ** 2 + 0.04);
+      const R = 1.4, i0 = Math.floor((f.x - R - FX0) / FCS), i1 = Math.floor((f.x + R - FX0) / FCS), j0 = Math.floor((f.y - R - FY0) / FCS), j1 = Math.floor((f.y + R - FY0) / FCS);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { if (i < 0 || j < 0 || i >= FW || j >= FH) continue; const k = j * FW + i; if (!air[k]) continue; const d = Math.hypot(FX0 + (i + .5) * FCS - f.x, FY0 + (j + .5) * FCS - f.y); if (d > R) continue; const w = 1 - d / R; c[k] += this.S * this.srcScale * gr * w * dt; th[k] = Math.min(3.1, th[k] + 0.35 * this.srcScale * gr * w * dt); }
+    }
+    // advection (semi-Lagrangian) + diffusion + decay
+    const Dk = this.D * dt / (FCS * FCS), Dt = Dk * 0.4, lam = Math.exp(-this.lambda * dt);
+    for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) {
+      const k = j * FW + i; if (!air[k]) { c2[k] = 0; th2[k] = 0; continue; }
+      const vx = this.ux[k] + J * this.jx[k], vy = this.uy[k] + J * this.jy[k];
+      const fx = i + 0.5 - vx * dt / FCS, fy = j + 0.5 - vy * dt / FCS;
+      let cv = this._s(c, fx, fy, k), tv = this._s(th, fx, fy, k);
+      // diffusion
+      let sc = 0, st = 0, nn = 0;
+      if (i > 0 && air[k - 1]) { sc += c[k - 1]; st += th[k - 1]; nn++; }
+      if (i < FW - 1 && air[k + 1]) { sc += c[k + 1]; st += th[k + 1]; nn++; }
+      if (j > 0 && air[k - FW]) { sc += c[k - FW]; st += th[k - FW]; nn++; }
+      if (j < FH - 1 && air[k + FW]) { sc += c[k + FW]; st += th[k + FW]; nn++; }
+      cv += Dk * (sc - nn * c[k]); tv += Dt * (st - nn * th[k]);
+      cv *= lam;
+      // layer descent
+      if (cv > 1.0) tv += this.g * Math.min(1.5, cv / 3) * dt; else if (cv < 0.4) tv -= 0.03 * dt;
+      c2[k] = cv < 0.01 ? 0 : cv; th2[k] = clamp(tv, 0, 3.15);
+    }
+    this.c.set(c2); this.th.set(th2);
+    // forcing regions (manual condition overrides)
+    for (const r of this.forces) {
+      const i0 = Math.max(0, Math.floor((r.x0 - FX0) / FCS)), i1 = Math.min(FW - 1, Math.floor((r.x1 - FX0) / FCS)), j0 = Math.max(0, Math.floor((r.y0 - FY0) / FCS)), j1 = Math.min(FH - 1, Math.floor((r.y1 - FY0) / FCS));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * FW + i; if (!air[k]) continue; if (r.cMax !== undefined) { if (c[k] > r.cMax) c[k] = r.cMax; if (r.cMax < 1) th[k] = Math.min(th[k], 0.5); } if (r.cMin !== undefined && c[k] < r.cMin) { c[k] += (r.cMin - c[k]) * 0.25; th[k] = Math.max(th[k], r.th || 0); } }
+    }
+    this.version++;
+  }
+  // derived sensor readings at (x,y)
+  read(x, y, out) {
+    const k = this.idx(x, y); if (k < 0 || !this.air[k]) { out.ceil = 0; out.low = 0; out.th = 0; out.c = 0; return out; }
+    const fx = (x - FX0) / FCS, fy = (y - FY0) / FCS; const c = this._s(this.c, fx, fy, k), th = this._s(this.th, fx, fy, k);
+    out.c = c; out.th = th; out.ceil = c * sstep(0.15, 0.85, th); out.low = c * 0.92 * sstep(1.5, 2.3, th); return out;
+  }
+  temp(x, y, t, fires, out) {
+    let T = 20;
+    for (const f of fires) { const a = t - f.t0; if (a < 0) continue; const d = Math.hypot(x - f.x, y - f.y); T += 520 * Math.exp(-((d / 2.4) ** 2)) * Math.min(1, a / 25) + 30 * Math.exp(-d / 9) * Math.min(1, a / 40); }
+    return T + 0.8 * out.ceil;
+  }
+}
+export { sstep, clamp };
