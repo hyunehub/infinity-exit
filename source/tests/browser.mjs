@@ -97,7 +97,7 @@ for (let s = 0; s < 6; s++) {
   ok(r.caps.every((c) => c.ok), `story ${s + 1} every chapter has non-empty caption`);
   ok(r.caps.every((c) => !c.dot), `story ${s + 1} captions have no middle dot`);
   ok(r.caps.every((c) => c.co >= 1), `story ${s + 1} every chapter has a callout (${r.caps.map((c) => c.co).join(',')})`);
-  ok(/대피 완료/.test(r.result) && /초/.test(r.result) && !/·/.test(r.result), `story ${s + 1} result card`);
+  ok(/스스로 대피/.test(r.result) && /초/.test(r.result) && !/·/.test(r.result), `story ${s + 1} result card`);
 }
 // prev / next / pause / home
 res.ux.nav = await u.evaluate(() => { const st = __v4.story, U = __v4.ui; U.startStory(0); st.setChapter(3); st.prev(); const a = st.k; st.next(); st.next(); const b = st.k; st.toggle(); const c = st.playing; st.toggle(); document.getElementById('modeStory').click(); return { a, b, c, mode: U.mode() }; });

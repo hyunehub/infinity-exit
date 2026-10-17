@@ -6,6 +6,7 @@ export const CFG = {
   RAMP_PEN: 3, DEAD_R: 4.0, FLAME_R: 9,
   MISS_T: 5, REOPEN_MISS: 8,      // prediction falsified: zone still clean MISS_T s after predicted arrival -> reopen after REOPEN_MISS s
   EVID_COS: 0.85, EVID_FRAC: 0.35,
+  REOPEN_PATH: 6,                 // stair the fans are clearing: reopen after 6 s of clean sensor readings
   FLOW_T: 12, FLOW_C: 40,         // airflow prediction: close if traced smoke arrives within walk + FLOW_T s, caution within walk + FLOW_C s // predict-close only if smoke was actually seen heading toward the exit (bearing within ~32 deg, >=35% of the way)
 };
 export const RANK = { open: 0, caution: 1, closed: 2 };
@@ -115,7 +116,7 @@ function evalExit(me, X, now, S) {
   let f = me.exitFsm[X]; if (!f) f = me.exitFsm[X] = { s: 'open', why: '', better: null };
   if (RANK[state] > RANK[f.s]) { f.s = state; f.why = why; f.better = null; }
   else if (RANK[state] < RANK[f.s]) {
-    if (f.s === 'closed') { if (f.better == null) f.better = now; const hold = (miss && f.why === 'predict') || f.why === 'flow' ? CFG.REOPEN_MISS : CFG.REOPEN; if (now - f.better >= hold) { f.s = state; f.why = why; f.better = null; } }
+    if (f.s === 'closed') { if (f.better == null) f.better = now; const hold = (miss && f.why === 'predict') || f.why === 'flow' ? CFG.REOPEN_MISS : X === S.clearing ? CFG.REOPEN_PATH : CFG.REOPEN; /* the stair the fans are clearing is watched closely */ if (now - f.better >= hold) { f.s = state; f.why = why; f.better = null; } }
     else { f.s = state; f.why = why; }
   } else { f.better = null; f.why = why || f.why; }
   return { s: f.s, why: f.why, cand: state };
@@ -175,7 +176,7 @@ export function decide(me, ctx) {
     }
     return false;
   };
-  const S = { flow: ctx.flow || null, fires, F, tFire0, spread, stageOf, seenToward, qOk: !!rep(me, 'Q', now), sosOk: { S1: !!rep(me, 'S1', now), S2: !!rep(me, 'S2', now) } };
+  const S = { clearing: ctx.clearing || null, flow: ctx.flow || null, fires, F, tFire0, spread, stageOf, seenToward, qOk: !!rep(me, 'Q', now), sosOk: { S1: !!rep(me, 'S1', now), S2: !!rep(me, 'S2', now) } };
   const exits = {}; for (const X of ['E1', 'E2', 'E3', 'E4', 'V']) exits[X] = evalExit(me, X, now, S);
   let anyStage = 0; for (const id in NODE_DEFS) anyStage = Math.max(anyStage, stageOf(id));
   const active = fires.length > 0 || anyStage >= 1;

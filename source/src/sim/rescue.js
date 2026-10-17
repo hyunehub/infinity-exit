@@ -175,6 +175,6 @@ export class Rescue {
     const gs = this.groups(); const wait = []; for (const id of ['S1', 'S2', 'Q']) { const n = S.agents.filter((a) => a.state !== 'done' && a.target === id && (a.state === 'wait' || a.state === 'press' || a.state === 'rescued' || a.state === 'follow')).length; if (n) wait.push({ id, n, stage: S.nodes[id].stage }); }
     const g = gs[0] || (wait[0] && { x: SOS_C[wait[0].id][0], y: SOS_C[wait[0].id][1] }); const fz = S.fires[0];
     const e = g ? this.pickEntry(g.x, g.y) : fz ? this.pickEntry(fz.x, fz.y) : null;
-    return { t: now, fire: this.fireText(), smoke: st, done, moving, wait, entry: e ? { id: e.id, name: NODE_NAME(e.id), stage: e.stage, locked: e.locked, dist: Math.round(e.L) } : null, eta: this.eta != null ? Math.max(0, this.eta - now) : null, vent: S.vent.mode, ventEx: S.vent.ex.slice() };
+    return { t: now, fire: this.fireText(), smoke: st, done, moving, wait, entry: e ? { id: e.id, name: NODE_NAME(e.id), stage: e.stage, locked: e.locked, dist: Math.round(e.L) } : null, eta: this.eta != null ? Math.max(0, this.eta - now) : null, vent: S.vent.mode, ventText: S.ventText() };
   }
 }

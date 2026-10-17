@@ -366,8 +366,8 @@ function zoneLines(st) {
 const liveZoneState = () => { const ex = sim.exitDisplay(); const tg = {}; for (const z of ZN) { const d = sim.nodes[z].dec; tg[z] = d && d.active ? d.target : null; } return { fire: sim.fires.map((f) => CARS[f.id].zone).join(''), smoke: Object.fromEntries(ZN.map((z) => [z, sim.nodes[z].stage])), exits: Object.fromEntries(Object.entries(ex).map(([k, v]) => [k, v.s])), tg, mode: sim.recommend().mode }; };
 const caseKey = (f, sm) => f + '|' + sm; const CASE_SET = Array.isArray(CASES) ? { off: CASES } : CASES; let CASE_BY = {}; let CUR = [];
 let cSel = { fire: 'A', smokeZ: '', vent: 'smart' };
-$('cFire').innerHTML = ZN.map((z) => `<button data-z="${z}">${z}</button>`).join(''); $('cSmoke').innerHTML = ZN.map((z) => `<button data-z="${z}">${z}</button>`).join('');
-const sortZ = (s) => ZN.filter((z) => s.includes(z)).join('');
+$('cFire').innerHTML = ZN.map((z) => `<button data-z="${z}">${z}</button>`).join(''); $('cSmoke').innerHTML = ZN.map((z) => `<button data-z="${z}">${z}</button>`).join('') + '<button data-z="R" class="rp">경사로</button>';
+const sortZ = (s) => ZN.filter((z) => s.includes(z)).join('') + (s.includes('R') ? 'R' : ''); // R: smoke on the ramp too
 $('cFire').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; const z = b.dataset.z; let f = cSel.fire.includes(z) ? cSel.fire.replace(z, '') : cSel.fire + z; f = sortZ(f); /* may be empty: nothing burning yet */ loadCase(f, sortZ([...cSel.smokeZ].filter((x) => !f.includes(x)).join(''))); });
 $('cSmoke').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || b.disabled) return; const z = b.dataset.z; loadCase(cSel.fire, sortZ(cSel.smokeZ.includes(z) ? cSel.smokeZ.replace(z, '') : cSel.smokeZ + z)); });
 $('cRestart').onclick = () => loadCase(cSel.fire, cSel.smokeZ);
@@ -376,26 +376,27 @@ const resText = (r) => (r.rescued ? `${r.evac - r.rescued}명 대피, ${r.rescue
 function caseRow(r) {
   const blocked = DOORS.filter((X) => r.exits[X] === 'closed').map((X) => STAIR_ZONE[X]).join(' ') + (r.exits.V === 'closed' ? ' 경사로' : '');
   const zc = ZN.map((z) => { const t = r.targets[z]; return `<td class="zt${t && /^E/.test(t) ? '' : t === 'V' ? ' rp' : ' sos'}">${t ? exitNm(t) : '-'}</td>`; }).join('');
-  return `<tr data-k="${caseKey(r.fire, r.smokeZ)}"><td class="z">${[...r.fire].join(' ')}</td><td class="z dim">${r.smokeZ ? [...r.smokeZ].join(' ') : '없음'}</td><td class="z bad">${blocked.trim() || '없음'}</td>${zc}<td><i class="lamp ${MODE_LAMP[r.mode] || 'amber'}"></i>${modeText(r.mode)}</td><td class="n">${resText(r)}</td><td class="n">${r.time}초</td></tr>`;
+  return `<tr data-k="${caseKey(r.fire, r.smokeZ)}"><td class="z">${[...r.fire].join(' ')}</td><td class="z dim">${r.smokeZ ? [...r.smokeZ].map((z) => (z === 'R' ? '경사로' : z)).join(' ') : '없음'}</td><td class="z bad">${blocked.trim() || '없음'}</td>${zc}<td><i class="lamp ${MODE_LAMP[r.mode] || 'amber'}"></i>${modeText(r.mode)}</td><td class="n">${resText(r)}</td><td class="n">${r.time}초</td></tr>`;
 }
-const VENT_NM = { off: '환기 꺼짐', normal: '평상시 환기 그대로', smart: '스마트 환기 제어' };
+const VENT_NM = { off: '환기 꺼짐', normal: '평상시 환기 그대로', smart: '고립 시 통로 확보' };
 function renderTable() {
-  CUR = CASE_SET[cSel.vent] || CASE_SET.off || []; CASE_BY = Object.fromEntries(CUR.map((r) => [caseKey(r.fire, r.smokeZ), r]));
+  const rampOn = cSel.smokeZ.includes('R'); CUR = (CASE_SET[cSel.vent] || CASE_SET.off || []).filter((r) => r.smokeZ.includes('R') === rampOn); CASE_BY = Object.fromEntries(CUR.map((r) => [caseKey(r.fire, r.smokeZ), r]));
   $('ctBody').innerHTML = CUR.map(caseRow).join(''); const cnt = (m) => CUR.filter((r) => r.mode === m).length; const sum = (k) => CUR.reduce((a, r) => a + (r[k] || 0), 0);
-  let t = `${VENT_NM[cSel.vent] || ''}: ${CUR.length}가지 경우 중 계단 대피 ${cnt('stairs') + cnt('caution')}, 경사로 대피 ${cnt('ramp')}, 고립(SOS) ${cnt('isolation') + cnt('stay') + cnt('refuge')}`;
-  if (CUR.length && 'expo2' in CUR[0]) { const off = CASE_SET.off || []; const e = sum('expo2'), e0 = off.reduce((a, r) => a + (r.expo2 || 0), 0); t += `. 짙은 연기 속에 있던 시간 합계 ${e}초` + (cSel.vent !== 'off' && e0 ? ` (환기 꺼짐 ${e0}초 대비 ${Math.round((e - e0) / e0 * 100)}%)` : ''); }
+  let t = `${VENT_NM[cSel.vent] || ''}, 경사로 연기 ${rampOn ? '있음' : '없음'}: ${CUR.length}가지 경우 중 계단 대피 ${cnt('stairs') + cnt('caution')}, 경사로 대피 ${cnt('ramp')}, 고립(SOS) ${cnt('isolation') + cnt('stay') + cnt('refuge')}`;
+  { const iso = CUR.filter((r) => ['isolation', 'stay', 'refuge'].includes(r.mode)), self = iso.filter((r) => !r.rescued && !r.wait).length; if (iso.length) t += ` (고립 중 ${self}가지는 ${cSel.vent === 'smart' ? '팬으로 연 통로로' : '나중에 열린 출구로'} 스스로 대피, ${iso.length - self}가지는 구조대가 구조)`; }
+  if (CUR.length && 'expo2' in CUR[0]) { const off = (CASE_SET.off || []).filter((r) => r.smokeZ.includes('R') === rampOn); const e = sum('expo2'), e0 = off.reduce((a, r) => a + (r.expo2 || 0), 0); t += `. 짙은 연기 속에 있던 시간 합계 ${e}초` + (cSel.vent !== 'off' && e0 ? ` (환기 꺼짐 ${e0}초 대비 ${Math.round((e - e0) / e0 * 100)}%)` : ''); }
   $('ctSum').textContent = t; $('cVent').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cSel.vent));
 }
 renderTable();
 $('ctBody').addEventListener('click', (e) => { const tr = e.target.closest('tr'); if (!tr) return; const [f, sm] = tr.dataset.k.split('|'); loadCase(f, sm); wrap.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 function loadCase(f, sm) {
-  cSel.fire = f; cSel.smokeZ = sm; sim.reset({ fire: f, smokeZ: sm, vent: cSel.vent, smoke: 'ceil', stairs: 'ok', ramp: 'ok', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } });
+  const rampWas = cSel.smokeZ.includes('R'); cSel.fire = f; cSel.smokeZ = sm; if (rampWas !== sm.includes('R')) renderTable(); sim.reset({ fire: f, smokeZ: sm.replace('R', ''), vent: cSel.vent, smoke: 'ceil', stairs: 'ok', ramp: sm.includes('R') ? 'dense' : 'ok', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } });
   afterReset(); setPlaying(true); sim.speed = 1; refreshCases();
 }
 function refreshCases() {
   if (mode !== 'cases') return; const c = sim.cond, rec = sim.recommend(), r = CASE_BY[caseKey(cSel.fire, cSel.smokeZ)];
   $('cFire').querySelectorAll('button').forEach((b) => b.classList.toggle('on', c.fire.includes(b.dataset.z)));
-  $('cSmoke').querySelectorAll('button').forEach((b) => { const burning = c.fire.includes(b.dataset.z); b.disabled = burning; b.classList.toggle('on', !burning && (c.smokeZ || '').includes(b.dataset.z)); });
+  $('cSmoke').querySelectorAll('button').forEach((b) => { const burning = c.fire.includes(b.dataset.z); b.disabled = burning; b.classList.toggle('on', !burning && cSel.smokeZ.includes(b.dataset.z)); });
   const det = rec.mode !== 'none'; const zs = liveZoneState(); $('cPlan').innerHTML = planSVG(zs); $('cZones').innerHTML = det ? zoneLines(zs) : `<p class="pl-b">${c.fire || c.smokeZ ? '센서가 불과 연기를 찾는 중입니다.' : '불난 구역을 고르면 구역별 대피 계단이 나옵니다.'}</p>`; $('cNow').textContent = det ? actionText(sim, rec) : ''; $('cRec').dataset.tone = det ? toneOf(4, rec) : 'amber';
   $('cRes').innerHTML = r ? `<span><i>계산 결과</i><b>${resText(r)}</b></span><span><i>걸린 시간</i><b>${r.time}초</b></span>` : '';
   const k = caseKey(cSel.fire, cSel.smokeZ); $('ctBody').querySelectorAll('tr').forEach((tr) => tr.classList.toggle('cur', tr.dataset.k === k));
@@ -411,7 +412,8 @@ function caseCallouts() {
 }
 const TEAM_ST = { force: '문 강제 개방', mask: '면체 착용', approach: '요구조자에게 이동', search: '벽 따라 검색', contact: '보조 마스크 씌우는 중', escort: '한 줄로 이송 중' };
 function rescueCallouts() {
-  const out = []; for (const T of sim.rescue.teams) { if (!TEAM_ST[T.state]) continue; const c = T.members.find((m) => m.visible); if (!c) continue; out.push({ key: 'team' + T.id, text: '119 구조대 ' + (T.id + 1) + '조: ' + TEAM_ST[T.state], tone: 'red', v: new V3(c.x, rampZ(c.y) + 2.3, -c.y) }); }
+  const out = [], V = sim.vent; if (V.mode === 'smart' && V.target && (V.phase === 'clear' || V.phase === 'hold')) { const at = nodePos(V.target, new V3()); out.push({ key: 'path', text: V.phase === 'clear' ? '통로 확보 중: ' + STAIR_ZONE[V.target] + '구역 급기' : '팬으로 연 통로: ' + NODE_NAME(V.target), tone: V.phase === 'clear' ? 'blue' : 'green', v: at }); }
+  for (const T of sim.rescue.teams) { if (!TEAM_ST[T.state]) continue; const c = T.members.find((m) => m.visible); if (!c) continue; out.push({ key: 'team' + T.id, text: '119 구조대 ' + (T.id + 1) + '조: ' + TEAM_ST[T.state], tone: 'red', v: new V3(c.x, rampZ(c.y) + 2.3, -c.y) }); }
   return out;
 }
 // ---- 119 link panel
@@ -424,7 +426,7 @@ function r119Html() {
   const sm = ZN.map((z) => `${z} <b class="${P.smoke[z] >= 2 ? 'bad' : P.smoke[z] ? '' : 'ok'}">${P.smoke[z] == null ? '?' : P.smoke[z]}</b>`).join('&nbsp; ');
   const wait = P.wait.length ? P.wait.map((w) => `<b>${w.id === 'Q' ? '차단 공간' : w.id} ${w.n}명</b>`).join(', ') : '없음';
   const e = P.entry; const ent = e ? `${e.name}${e.id === 'V' ? '' : `, 연기 ${e.stage}단계`}${e.locked ? ', 문 잠김(강제 개방)' : ''}${sim.cond.loc119 === false ? '' : `, 요구조자까지 ${e.dist} m`}` : '-';
-  const vent = P.vent === 'smart' ? (P.ventEx.length ? `스마트: ${P.ventEx.join(', ')}구역 배기` : '스마트: 평상시 패턴') : P.vent === 'normal' ? '평상시 패턴 가동 중' : '정지';
+  const vent = P.ventText;
   let h = `<h4>119 연동 <span class="st">${st}</span></h4><dl class="pk"><dt>위치</dt><dd>지하 3층 주차장, ${P.fire} 화재</dd><dt>연기</dt><dd>${sm}</dd><dt>사람</dt><dd>대피 완료 ${P.done}명, 이동 ${P.moving}명, 구조 대기 ${wait}</dd><dt>진입로</dt><dd>${ent}</dd><dt>환기</dt><dd>${vent}</dd></dl>`;
   if (R.eta != null && R.arrivedAt == null) { const left = Math.max(0, R.eta - sim.t); h += `<div class="eta">도착까지 실제 약 <b>${mmss(left * TIME_K)}</b> (화면은 ${Math.round(TIME_K)}배 빠르게)</div>`; }
   const cur = [...R_STEPS].reverse().find(([k]) => R.steps[k] != null);

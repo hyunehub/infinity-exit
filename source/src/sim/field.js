@@ -55,6 +55,7 @@ export class Field {
     for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const k = j * FW + i; if (!this.air[k] || FY0 + (j + .5) * FCS > 10) continue; const x = FX0 + (i + .5) * FCS, y = FY0 + (j + .5) * FCS; const g = Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sigma * sigma)); const v = c0 * g; if (v > this.c[k]) { this.c[k] = v; this.th[k] = Math.max(this.th[k], th0 * Math.min(1, g * 1.6)); } }
     this.version++;
   }
+  seedZone(r, c0, th0) { for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const k = j * FW + i, x = FX0 + (i + .5) * FCS, y = FY0 + (j + .5) * FCS; if (!this.air[k] || x < r.x0 || x > r.x1 || y < r.y0 || y > r.y1) continue; this.c[k] = Math.max(this.c[k], c0); this.th[k] = Math.max(this.th[k], th0); } this.version++; }
   seedAll(c0, th0, ymax = 10) { for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const k = j * FW + i; if (!this.air[k] || FY0 + (j + .5) * FCS > ymax) continue; this.c[k] = Math.max(this.c[k], c0); this.th[k] = Math.max(this.th[k], th0); } this.version++; }
   // bilinear sample with wall fallback
   _s(a, fx, fy, k0) { // bilinear sample; cells outside the air (walls) take the value of the cell we sample for
@@ -97,9 +98,10 @@ export class Field {
       const i0 = Math.max(0, Math.floor((r.x0 - FX0) / FCS)), i1 = Math.min(FW - 1, Math.floor((r.x1 - FX0) / FCS)), j0 = Math.max(0, Math.floor((r.y0 - FY0) / FCS)), j1 = Math.min(FH - 1, Math.floor((r.y1 - FY0) / FCS));
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * FW + i; if (!air[k]) continue; if (r.cMax !== undefined) { if (c[k] > r.cMax) c[k] = r.cMax; if (r.cMax < 1) th[k] = Math.min(th[k], 0.5); } if (r.cMin !== undefined && c[k] < r.cMin) { c[k] += (r.cMin - c[k]) * 0.25; th[k] = Math.max(th[k], r.th || 0); } }
     }
-    // exhaust vents take smoke out of the ceiling layer (and the layer lifts back up)
-    for (const v of this.vents) { if (!(v.q < 0)) continue; const R = 3.6, k0 = -v.q * 0.035 * dt;
-      if (v.zone) { const z = v.zone, kz = Math.exp(v.q * 0.003 * dt); // the zone's exhaust duct has grilles across the whole zone
+    // exhaust vents take smoke out of the ceiling layer (and the layer lifts back up);
+    // supply vents dilute it with fresh air (a little less near the grille than an exhaust takes out)
+    for (const v of this.vents) { if (Math.abs(v.q) < 0.3) continue; const Q = v.q < 0 ? -v.q : v.q * 0.7, R = 3.6, k0 = Q * 0.035 * dt;
+      if (v.zone) { const z = v.zone, kz = Math.exp(-Q * 0.003 * dt); // the zone's exhaust duct has grilles across the whole zone
         for (let j = Math.max(0, Math.floor((z.y0 - FY0) / FCS)); j <= Math.min(FH - 1, Math.floor((z.y1 - FY0) / FCS)); j++) for (let i = Math.max(0, Math.floor((z.x0 - FX0) / FCS)); i <= Math.min(FW - 1, Math.floor((z.x1 - FX0) / FCS)); i++) { const k = j * FW + i; if (air[k]) { c[k] *= kz; } } } const i0 = Math.max(0, Math.floor((v.x - R - FX0) / FCS)), i1 = Math.min(FW - 1, Math.floor((v.x + R - FX0) / FCS)), j0 = Math.max(0, Math.floor((v.y - R - FY0) / FCS)), j1 = Math.min(FH - 1, Math.floor((v.y + R - FY0) / FCS));
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * FW + i; if (!air[k]) continue; const d = Math.hypot(FX0 + (i + .5) * FCS - v.x, FY0 + (j + .5) * FCS - v.y); if (d > R) continue; const w = 1 - d / R; c[k] *= Math.exp(-k0 * w); th[k] = Math.max(0, th[k] - 0.05 * k0 * w); } }
     this.version++;
