@@ -1,6 +1,7 @@
 // Story mode: 6 curated scenarios, each played as 6 narrated chapters on top of the unchanged simulation.
 import { Sim, modeText, whyText } from './sim/sim.js';
 import { NODE_DEFS, NODE_NAME, CARS, STAIR_ZONE } from './sim/world.js';
+import { TIME_K } from './sim/rescue.js';
 
 export const CHAPTERS = ['화재 발생', '센서 감지', '정보 공유', '판단', '대피 행동', '결과'];
 export const STORIES = [
@@ -77,7 +78,11 @@ export function captionFor(sim, story, k) {
     case 4: { const wait = sim.agents.filter((a) => a.state === 'wait' || a.state === 'press').length;
       if (sos) text = wait ? n + '명 중 ' + wait + '명이 구조를 기다리는 자리에 도착했습니다.' : (rec.mode === 'refuge' ? '사람들이 연기 차단 공간으로 이동합니다.' : '사람들이 SOS 버튼 쪽으로 이동합니다.');
       else text = sim.stats.evac ? n + '명 중 ' + sim.stats.evac + '명이 밖으로 나갔습니다.' : (rec.mode === 'ramp' ? '사람들이 경사로로 걸어 올라갑니다.' : '사람들이 안내받은 비상계단으로 이동합니다.'); break; }
-    default: text = S.lesson;
+    default: { const R = sim.rescue, T = R.teams.find((t) => t.state !== 'standby'), wait = sim.agents.filter((a) => ['wait', 'press', 'rescued', 'follow'].includes(a.state)).length;
+      if (R.doneAt != null) text = '119 구조대가 ' + R.rescued + '명을 모두 구조했습니다. ' + S.lesson;
+      else if (T) text = { force: '구조대가 잠긴 비상계단 문을 열고 있습니다.', mask: '구조대가 면체를 쓰고 진입합니다. 관리실이 보낸 위치로 바로 갑니다.', approach: '구조대가 연기 속을 낮은 자세로 지나 요구조자에게 갑니다.', search: '위치 정보가 없어 벽을 따라 찾고 있습니다.', contact: '구조대가 도착해 보조 마스크를 씌우고 있습니다.', escort: '앞 사람 어깨를 잡고 한 줄로, 구조대가 들어온 길로 나갑니다.' }[T.state] || S.lesson;
+      else if (wait && R.eta != null) text = '관리실이 위치와 연기 정보를 119에 보냈습니다. 구조대 도착까지 실제 약 ' + Math.max(1, Math.round((R.eta - sim.t) * TIME_K / 60)) + '분.';
+      else text = S.lesson; }
   }
   return { text, tone, rec };
 }
@@ -98,7 +103,7 @@ export class Story {
     this.k = k; this.applySpeed(); sim.playing = this.playing; this.h.onChapter(k);
   }
   applySpeed() {
-    const sim = this.sim, k = this.k; if (k >= 5) { sim.speed = 1; return; }
+    const sim = this.sim, k = this.k; if (k >= 5) { sim.speed = ['isolation', 'refuge', 'stay'].includes(sim.recommend().mode) ? 2 : 1; return; } // waiting for the rescue team: play it at 2x
     const [a, b] = this.segSim(k); sim.speed = Math.max(0.02, (b - a) / this.tl.dur[k]);
   }
   next() { if (this.k < 5) this.setChapter(this.k + 1); }

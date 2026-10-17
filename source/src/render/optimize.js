@@ -131,8 +131,8 @@ export function mergePerson(gltf) {
     for (const gr of groups) { const mat = mats[gr.materialIndex] || mats[0]; const p = { mesh: o, geo: g, group: gr, mat, rel: new THREE.Matrix4() }; parts.push(p); }
   }
   // build, remembering the vertex range of the shirt
-  const geos = []; for (const p of parts) { const gg = extract(p, (m) => (/shirt/i.test(m.name) ? new THREE.Color(1, 1, 1) : partColor(m)), true); if (/shirt/i.test(p.mat.name)) { shirt[0] = vcount; shirt[1] = vcount + gg.attributes.position.count; } vcount += gg.attributes.position.count; geos.push(gg); }
-  const merged = mergeGeometries(geos, false); merged.userData.shirt = shirt;
+  const geos = [], ranges = {}; for (const p of parts) { const gg = extract(p, (m) => (/shirt/i.test(m.name) ? new THREE.Color(1, 1, 1) : partColor(m)), true); if (/shirt/i.test(p.mat.name)) { shirt[0] = vcount; shirt[1] = vcount + gg.attributes.position.count; } (ranges[p.mat.name] = ranges[p.mat.name] || []).push([vcount, vcount + gg.attributes.position.count]); vcount += gg.attributes.position.count; geos.push(gg); }
+  const merged = mergeGeometries(geos, false); merged.userData.shirt = shirt; merged.userData.ranges = ranges; // vertex ranges per material (firefighter recolour)
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.0, transparent: true });
   const mesh = new THREE.SkinnedMesh(merged, mat); mesh.name = 'P_Merged'; mesh.bind(first.skeleton, first.bindMatrix); mesh.frustumCulled = false;
   const par = first.parent; for (const o of sk) o.parent.remove(o); par.add(mesh); return true;

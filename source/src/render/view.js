@@ -8,6 +8,7 @@ import { optimizeLot, mergePerson, buildCarKit, CarSet } from './optimize.js';
 import { FX } from './fx.js';
 import { Display } from './display.js';
 import { FloorArrows, MeshOverlay } from './overlay.js';
+import { AirFX, RescueFX } from './rescuefx.js';
 import { Ground } from './ground.js';
 
 const Q_LEVELS = [
@@ -105,9 +106,10 @@ export class View {
     // people
     const tpl = this.assets.person || makePlaceholderPerson();
     this.people = new People(sc, tpl, sim.agents.length, { frontOffset: this.opts.pfront === 'pz' ? Math.PI : 0 }); this.personReal = !!this.assets.person;
+    this.crewView = new People(sc, tpl, sim.crew.length, { frontOffset: this.opts.pfront === 'pz' ? Math.PI : 0, crew: true });
     this.fx = new FX(sc, sim.field); this.fx.setQuality(Q_LEVELS[this.level]);
     this.display = new Display(sc, sim, { oledFlip: this.opts.oledflip, glbUV: this.realLot });
-    this.arrows = new FloorArrows(sc); this.meshov = new MeshOverlay(sc);
+    this.arrows = new FloorArrows(sc); this.meshov = new MeshOverlay(sc); this.air = new AirFX(sc); this.rfx = new RescueFX(sc); this.air.low = Q_LEVELS[this.level].layers < 0.7;
     this.applyQuality(); this.applyPower(true, true); this.syncSim(); this.ready = true;
   }
   // The lot model has its EV chargers at the middle bays (y = +-1.5), but the burning EVs park in the corner bays of each
@@ -146,7 +148,7 @@ export class View {
   syncSim() { // after sim.reset()
     this.fx.syncFires(this.sim); this.fx.resetSmoke(); this.arrows.sig = ''; this.sync = true; this.display && (this.display.t = 0);
     for (const id in this.cars) { this.cars[id].group.visible = id !== 'carR' || this.sim.fires.some((f) => f.id === 'carR') || this.sim.cond.ramp === 'blocked'; { const c = this.cars[id]; if (c.reset) c.reset(); else if (c.paint) c.paint.color.copy(c.base), c.paint.emissive.setRGB(0, 0, 0); } }
-    for (let i = 0; i < this.people.n; i++) this.people.cur[i] = null;
+    for (let i = 0; i < this.people.n; i++) this.people.cur[i] = null; for (let i = 0; i < this.crewView.n; i++) this.crewView.cur[i] = null;
   }
   applyPower(on, force) {
     if (!force && on === this.power) return; this.power = on; const r = this.renderer;
@@ -182,7 +184,7 @@ export class View {
     const w = Math.max(10, this.wrap.clientWidth), h = Math.max(10, this.wrap.clientHeight); this.renderer.setPixelRatio(Math.min(this.maxPR, Q_LEVELS[this.level].pr)); this.renderer.setSize(w, h, false); const ins = this.inset || 0, insY = this.insetY || 0; this.camera.aspect = (w + ins) / (h + insY); if (ins > 0 || insY > 0) this.camera.setViewOffset(w + ins, h + insY, 0, insY, w, h); else this.camera.clearViewOffset(); this.camera.updateProjectionMatrix();
     if (this.camState && this.camState.view && !this._userMoved) { /* keep preset framing for new aspect */ const p = this.presetPose(this.camState.view); if (!this.tween && this.frames < 3) { this.camera.position.copy(p.p); this.controls.target.copy(p.t); } }
   }
-  applyQuality() { const q = Q_LEVELS[this.level]; this.renderer.setPixelRatio(Math.min(this.maxPR, q.pr)); if (this.fx) this.fx.setQuality(q); this.renderer.setSize(this.wrap.clientWidth, this.wrap.clientHeight, false); }
+  applyQuality() { const q = Q_LEVELS[this.level]; this.renderer.setPixelRatio(Math.min(this.maxPR, q.pr)); if (this.fx) this.fx.setQuality(q); if (this.air) this.air.low = q.layers < 0.7; this.renderer.setSize(this.wrap.clientWidth, this.wrap.clientHeight, false); }
   // ---------------------------------------------------------------- frame
   loop(ts) {
     requestAnimationFrame((t) => this.loop(t));
@@ -194,11 +196,11 @@ export class View {
     if (this.onBefore) this.onBefore(dt);
     const sim = this.sim; const alpha = sim.frame(dt); sim.tVis = sim.t + (sim.playing ? alpha * 0.05 : 0);
     if (sim.power !== this.power) this.applyPower(sim.power);
-    this.people.update(sim, alpha, dt); this.display.update(dt); this.fx.update(dt, sim, this.camera, sim.power);
+    this.people.update(sim, alpha, dt); this.crewView.update(sim, alpha, dt); this.display.update(dt); this.fx.update(dt, sim, this.camera, sim.power);
     if (sim.fires.length !== this._nf || this.sync) { this.fx.syncFires(sim); this._nf = sim.fires.length; this.sync = false; for (const id in this.cars) if (id === 'carR') this.cars[id].group.visible = sim.fires.some((f) => f.id === 'carR') || sim.cond.ramp === 'blocked'; }
     this.fx.paintBurn(sim, this.cars);
     const dec = sim.nodes.M.dec; this.fx.setSpread(dec && dec.F, dec && dec.spread);
-    this.arrows.sync(sim); this.arrows.update(dt, sim.power); this.meshov.update(sim, dt);
+    this.arrows.sync(sim); this.arrows.update(dt, sim.power); this.meshov.update(sim, dt); this.air.update(dt, sim); this.rfx.update(dt, sim);
     if (this.tween) { const tw = this.tween; tw.t += dt / (tw.d || 0.9); const e = ease(Math.min(1, tw.t)); this.camera.position.lerpVectors(tw.p0, tw.p1, e); this.controls.target.lerpVectors(tw.t0, tw.t1, e); this.camera.fov = tw.f0 + (tw.f1 - tw.f0) * e; this.camera.updateProjectionMatrix(); if (tw.t >= 1) this.tween = null; }
     this.controls.update();
     if (!this.noRender) this.renderer.render(this.scene, this.camera);

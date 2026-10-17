@@ -5,7 +5,8 @@ export const CFG = {
   STAGE: [3, 8, 15], HOLD_S1: 90, REOPEN: 30, SAFE_T: 30, COS: 0.7, STALE: 3.5,
   RAMP_PEN: 3, DEAD_R: 4.0, FLAME_R: 9,
   MISS_T: 5, REOPEN_MISS: 8,      // prediction falsified: zone still clean MISS_T s after predicted arrival -> reopen after REOPEN_MISS s
-  EVID_COS: 0.85, EVID_FRAC: 0.35, // predict-close only if smoke was actually seen heading toward the exit (bearing within ~32 deg, >=35% of the way)
+  EVID_COS: 0.85, EVID_FRAC: 0.35,
+  FLOW_T: 12, FLOW_C: 40,         // airflow prediction: close if traced smoke arrives within walk + FLOW_T s, caution within walk + FLOW_C s // predict-close only if smoke was actually seen heading toward the exit (bearing within ~32 deg, >=35% of the way)
 };
 export const RANK = { open: 0, caution: 1, closed: 2 };
 const sstage = (ceil, low, k = 1) => (low >= CFG.STAGE[1] * k || ceil >= CFG.STAGE[2] * k) ? 2 : (ceil >= CFG.STAGE[0] * k ? 1 : 0);
@@ -86,7 +87,7 @@ function evalExit(me, X, now, S) {
   for (const f of S.fires) if (Math.hypot(d.x - f.x, d.y - f.y) <= FIRE_R) up('closed', 'fire');
   if (stg >= 2) up('closed', 'smoke'); else if (stg === 1) up('caution', 'smoke1');
   let miss = false;
-  if (S.spread.valid && S.F) {
+  if (S.spread.valid && S.F && !S.flow) { // with the airflow forecast available, it replaces the coarse sensor-direction guess
     const dx = d.x - S.F.x, dy = d.y - S.F.y, dist = Math.hypot(dx, dy), cos = (dx * S.spread.vx + dy * S.spread.vy) / (dist || 1);
     // prediction check: the exit's zone sensor (pillar, or R0 for the ramp) should already see smoke by now
     const zid = isV ? 'R0' : d.pillar, zd = NODE_DEFS[zid], zr = rep(me, zid, now), xr = isV ? null : rep(me, X, now);
@@ -100,12 +101,21 @@ function evalExit(me, X, now, S) {
       else { me.predSince[X] = null; up('caution', 'predict-slack'); }
     } else if (me.predSince) me.predSince[X] = null;
   }
+  // airflow-informed prediction: the system knows the vents and jet fans, so it knows where the smoke will be carried
+  if (S.flow && S.F && !isV) { // stairs only: the ramp is the building's own exhaust path and has its own sensors
+    const ta = S.flow.at && S.flow.at[X] != null ? S.flow.at[X] : Infinity;
+    if (isFinite(ta)) {
+      const arrive = ta - now, walk = Math.hypot(me.ref.x - d.x, me.ref.y - d.y) / V_WALK;
+      const zid = isV ? 'R0' : d.pillar, zr = rep(me, zid, now); const wrong = arrive < -2 * CFG.MISS_T && zr && zr.t1 == null && zr.stage === 0;
+      if (!wrong) { if (arrive < walk + CFG.FLOW_T) up('closed', 'flow'); else if (arrive < walk + CFG.FLOW_C) up('caution', 'flow-slack'); }
+    }
+  }
   if (miss && state === 'open') why = 'predict-miss';
   // hysteresis FSM (a falsified prediction-only closure reopens sooner than a real smoke/fire closure)
   let f = me.exitFsm[X]; if (!f) f = me.exitFsm[X] = { s: 'open', why: '', better: null };
   if (RANK[state] > RANK[f.s]) { f.s = state; f.why = why; f.better = null; }
   else if (RANK[state] < RANK[f.s]) {
-    if (f.s === 'closed') { if (f.better == null) f.better = now; const hold = miss && f.why === 'predict' ? CFG.REOPEN_MISS : CFG.REOPEN; if (now - f.better >= hold) { f.s = state; f.why = why; f.better = null; } }
+    if (f.s === 'closed') { if (f.better == null) f.better = now; const hold = (miss && f.why === 'predict') || f.why === 'flow' ? CFG.REOPEN_MISS : CFG.REOPEN; if (now - f.better >= hold) { f.s = state; f.why = why; f.better = null; } }
     else { f.s = state; f.why = why; }
   } else { f.better = null; f.why = why || f.why; }
   return { s: f.s, why: f.why, cand: state };
@@ -165,7 +175,7 @@ export function decide(me, ctx) {
     }
     return false;
   };
-  const S = { fires, F, tFire0, spread, stageOf, seenToward, qOk: !!rep(me, 'Q', now), sosOk: { S1: !!rep(me, 'S1', now), S2: !!rep(me, 'S2', now) } };
+  const S = { flow: ctx.flow || null, fires, F, tFire0, spread, stageOf, seenToward, qOk: !!rep(me, 'Q', now), sosOk: { S1: !!rep(me, 'S1', now), S2: !!rep(me, 'S2', now) } };
   const exits = {}; for (const X of ['E1', 'E2', 'E3', 'E4', 'V']) exits[X] = evalExit(me, X, now, S);
   let anyStage = 0; for (const id in NODE_DEFS) anyStage = Math.max(anyStage, stageOf(id));
   const active = fires.length > 0 || anyStage >= 1;

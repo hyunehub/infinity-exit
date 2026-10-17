@@ -14,6 +14,7 @@ export class Field {
     this.air = new Uint8Array(N);
     for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const x = FX0 + (i + 0.5) * FCS, y = FY0 + (j + 0.5) * FCS; this.air[j * FW + i] = (y <= 10 || Math.abs(x) <= 3.5) ? 1 : 0; }
     this.version = 0; this.wind = [0, 0]; this.fires = []; this.forces = []; this.srcScale = 1; this.jetK = 0;
+    this.vents = []; this.jets = [];   // ceiling vents {x,y,q} (q>0 supply, q<0 exhaust, m3/s-ish) and jet fans {x,y,dx,dy,v}
     this.S = 6.0;  // source strength
     this.D = 0.3; this.lambda = 0.0015; this.g = 0.016;
     this.rebuildFlow();
@@ -22,18 +23,28 @@ export class Field {
   idx(x, y) { const i = Math.floor((x - FX0) / FCS), j = Math.floor((y - FY0) / FCS); return (i < 0 || j < 0 || i >= FW || j >= FH) ? -1 : j * FW + i; }
   setWind(w) { this.wind = w; this.rebuildFlow(); }
   setFires(f) { this.fires = f; this.rebuildFlow(); }
-  rebuildFlow() {
+  // ventilation: vents push air away (supply) or draw it in (exhaust); jet fans blow a band of air along the aisle
+  setVent(vents, jets) { this.vents = vents; this.jets = jets; this.rebuildFlow(); }
+  ventAt(x, y, vents = this.vents, jets = this.jets) { // airflow added by vents and jet fans at (x,y), on the lot floor only
+    let ux = 0, uy = 0; if (y > 10) return [0, 0];
+    for (const v of vents) { if (!v.q) continue; const dx = x - v.x, dy = y - v.y, d = Math.hypot(dx, dy) + 1e-3; const m = v.q / (2 * Math.PI * Math.max(d, 1.2)) * Math.exp(-d / 16); ux += dx / d * m; uy += dy / d * m; }
+    for (const j of jets) { if (!j.v) continue; const ax = x - j.x, ay = y - j.y, along = ax * j.dx + ay * j.dy, side = Math.abs(-ax * j.dy + ay * j.dx); if (along < -1.5 || along > 22 || side > 6) continue; const m = j.v * Math.exp(-Math.max(0, along) / 14) * (1 - side / 6) * (along < 0 ? (along + 1.5) / 1.5 : 1); ux += j.dx * m; uy += j.dy * m; }
+    return [ux, uy];
+  }
+  baseAt(x, y) {
     const [wx, wy] = this.wind;
+    if (y > 10) return [0, 0.9 + wy * 0.6];                         // ramp: exhaust draft (chimney)
+    const dx = 0 - x, dy = 10 - y, d = Math.hypot(dx, dy) + 1e-3, m = 0.45 / (1 + d / 14);
+    let ux = dx / d * m + wx, uy = dy / d * m + wy;
+    if (y > 7 && Math.abs(x) < 4) uy += 0.4;                        // converge into the mouth
+    return [ux, uy];
+  }
+  rebuildFlow() {
     for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) {
       const k = j * FW + i; if (!this.air[k]) { this.ux[k] = this.uy[k] = this.jx[k] = this.jy[k] = 0; continue; }
       const x = FX0 + (i + 0.5) * FCS, y = FY0 + (j + 0.5) * FCS;
-      let ux, uy;
-      if (y > 10) { ux = 0; uy = 0.9 + wy * 0.6; }                  // ramp: exhaust draft (chimney)
-      else {
-        const dx = 0 - x, dy = 10 - y, d = Math.hypot(dx, dy) + 1e-3, m = 0.45 / (1 + d / 14);
-        ux = dx / d * m + wx; uy = dy / d * m + wy;
-        if (y > 7 && Math.abs(x) < 4) uy += 0.4;                    // converge into the mouth
-      }
+      let [ux, uy] = this.baseAt(x, y);
+      if (this.vents.length || this.jets.length) { const [vx, vy] = this.ventAt(x, y); ux += vx; uy += vy; }
       this.ux[k] = ux; this.uy[k] = uy;
       let jx = 0, jy = 0;
       for (const f of this.fires) { const dx = x - f.x, dy = y - f.y, d = Math.hypot(dx, dy) + 1e-3, m = 1.1 * Math.exp(-d / 6); jx += dx / d * m; jy += dy / d * m; }
@@ -46,10 +57,12 @@ export class Field {
   }
   seedAll(c0, th0, ymax = 10) { for (let j = 0; j < FH; j++) for (let i = 0; i < FW; i++) { const k = j * FW + i; if (!this.air[k] || FY0 + (j + .5) * FCS > ymax) continue; this.c[k] = Math.max(this.c[k], c0); this.th[k] = Math.max(this.th[k], th0); } this.version++; }
   // bilinear sample with wall fallback
-  _s(a, fx, fy, k0) {
-    const x = fx - 0.5, y = fy - 0.5, i0 = Math.floor(x), j0 = Math.floor(y), tx = x - i0, ty = y - j0;
-    const g = (i, j) => { if (j >= FH) return 0; if (i < 0 || j < 0 || i >= FW) return a[k0]; const k = j * FW + i; return this.air[k] ? a[k] : a[k0]; };
-    return (g(i0, j0) * (1 - tx) + g(i0 + 1, j0) * tx) * (1 - ty) + (g(i0, j0 + 1) * (1 - tx) + g(i0 + 1, j0 + 1) * tx) * ty;
+  _s(a, fx, fy, k0) { // bilinear sample; cells outside the air (walls) take the value of the cell we sample for
+    const x = fx - 0.5, y = fy - 0.5, i0 = Math.floor(x), j0 = Math.floor(y), tx = x - i0, ty = y - j0, air = this.air, d = a[k0];
+    let v00 = d, v10 = d, v01 = d, v11 = d;
+    if (j0 >= 0 && j0 < FH) { const r = j0 * FW; if (i0 >= 0 && i0 < FW && air[r + i0]) v00 = a[r + i0]; if (i0 + 1 >= 0 && i0 + 1 < FW && air[r + i0 + 1]) v10 = a[r + i0 + 1]; } else if (j0 >= FH) { v00 = 0; v10 = 0; }
+    if (j0 + 1 >= 0 && j0 + 1 < FH) { const r = (j0 + 1) * FW; if (i0 >= 0 && i0 < FW && air[r + i0]) v01 = a[r + i0]; if (i0 + 1 >= 0 && i0 + 1 < FW && air[r + i0 + 1]) v11 = a[r + i0 + 1]; } else if (j0 + 1 >= FH) { v01 = 0; v11 = 0; }
+    return (v00 * (1 - tx) + v10 * tx) * (1 - ty) + (v01 * (1 - tx) + v11 * tx) * ty;
   }
   step(dt, t) {
     const { c, th, c2, th2, air } = this; const J = this.jetK;
@@ -84,6 +97,11 @@ export class Field {
       const i0 = Math.max(0, Math.floor((r.x0 - FX0) / FCS)), i1 = Math.min(FW - 1, Math.floor((r.x1 - FX0) / FCS)), j0 = Math.max(0, Math.floor((r.y0 - FY0) / FCS)), j1 = Math.min(FH - 1, Math.floor((r.y1 - FY0) / FCS));
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * FW + i; if (!air[k]) continue; if (r.cMax !== undefined) { if (c[k] > r.cMax) c[k] = r.cMax; if (r.cMax < 1) th[k] = Math.min(th[k], 0.5); } if (r.cMin !== undefined && c[k] < r.cMin) { c[k] += (r.cMin - c[k]) * 0.25; th[k] = Math.max(th[k], r.th || 0); } }
     }
+    // exhaust vents take smoke out of the ceiling layer (and the layer lifts back up)
+    for (const v of this.vents) { if (!(v.q < 0)) continue; const R = 3.6, k0 = -v.q * 0.035 * dt;
+      if (v.zone) { const z = v.zone, kz = Math.exp(v.q * 0.003 * dt); // the zone's exhaust duct has grilles across the whole zone
+        for (let j = Math.max(0, Math.floor((z.y0 - FY0) / FCS)); j <= Math.min(FH - 1, Math.floor((z.y1 - FY0) / FCS)); j++) for (let i = Math.max(0, Math.floor((z.x0 - FX0) / FCS)); i <= Math.min(FW - 1, Math.floor((z.x1 - FX0) / FCS)); i++) { const k = j * FW + i; if (air[k]) { c[k] *= kz; } } } const i0 = Math.max(0, Math.floor((v.x - R - FX0) / FCS)), i1 = Math.min(FW - 1, Math.floor((v.x + R - FX0) / FCS)), j0 = Math.max(0, Math.floor((v.y - R - FY0) / FCS)), j1 = Math.min(FH - 1, Math.floor((v.y + R - FY0) / FCS));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * FW + i; if (!air[k]) continue; const d = Math.hypot(FX0 + (i + .5) * FCS - v.x, FY0 + (j + .5) * FCS - v.y); if (d > R) continue; const w = 1 - d / R; c[k] *= Math.exp(-k0 * w); th[k] = Math.max(0, th[k] - 0.05 * k0 * w); } }
     this.version++;
   }
   // derived sensor readings at (x,y)

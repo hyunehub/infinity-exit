@@ -1,5 +1,6 @@
 import { Sim, PRESETS, DEFAULT_COND, stText, whyText, modeText, ZONE_RECT } from './sim/sim.js';
-import { NODE_DEFS, NODE_IDS, MESH_EDGES, NODE_NAME, DOORS, CARS, FIRE_KEYS, STAIR_ZONE } from './sim/world.js';
+import { NODE_DEFS, NODE_IDS, MESH_EDGES, NODE_NAME, DOORS, CARS, FIRE_KEYS, STAIR_ZONE, rampZ } from './sim/world.js';
+import { TIME_K } from './sim/rescue.js';
 import { FW, FH, FCS, FX0, FY0 } from './sim/field.js';
 import { View } from './render/view.js';
 import { loadAssets, embeddedNames, loadTimes } from './render/assets.js';
@@ -108,7 +109,7 @@ function updateInfo() {
   const moving = sim.agents.some((a) => a.state === 'go' || a.state === 'press' || a.state === 'wait');
   [anyFire, M, guided, moving].forEach((v, i) => stepEls[i].classList.toggle('on', v));
   const al = $('alert'); const ss = ['S1', 'S2', 'Q'].map((id) => sim.sos[id].status); let msg = '';
-  if (!sim.power) msg = '정전: 배터리 모드 안내'; else if (ss.includes('rescue')) msg = '구조대가 오고 있습니다'; else if (ss.includes('acked')) msg = '관리실 → 119 구조 요청 접수'; else if (ss.includes('requested')) msg = 'SOS 요청을 보내는 중';
+  if (!sim.power) msg = '정전: 배터리 모드 안내'; else if (sim.rescue.teams.some((T) => T.state === 'escort')) msg = '구조대가 요구조자를 이송 중'; else if (sim.rescue.teams.some((T) => T.state !== 'standby')) msg = '구조대 진입, 요구조자에게 이동 중'; else if (ss.includes('rescue') || (sim.rescue.eta != null && ss.includes('acked'))) msg = '119 출동 중: 구조대가 오고 있습니다'; else if (ss.includes('acked')) msg = '관리실 → 119 구조 요청 접수'; else if (ss.includes('requested')) msg = 'SOS 요청을 보내는 중';
   else if (anyFire && ['stairs', 'ramp', 'caution', 'isolation', 'refuge', 'stay'].includes(rec.mode)) msg = modeText(rec.mode);
   if (msg !== lastAlert) { lastAlert = msg; al.textContent = msg; al.style.display = msg ? 'block' : 'none'; }
   $('clock').textContent = fmt(sim.t) + (sim.playing ? '' : '  일시정지');
@@ -247,7 +248,7 @@ function calloutSpecs(k) {
   // danger zones first: the fire's no-go disc and the smoke zones painted on the floor
   const dz = []; if (k >= 1) { fire.text = name + (k >= 3 ? ' (5 m 출입 금지)' : ''); dz.push(fire); } else dz.push(fire);
   if (k >= 2) { const sp = smokeSpots(); if (sp.s2) dz.push({ key: 'sm2', text: '짙은 연기 구역', tone: 'red', v: new V3(sp.s2[0], 2.4, -sp.s2[1]) }); if (sp.s1 && (!sp.s2 || Math.hypot(sp.s1[0] - sp.s2[0], sp.s1[1] - sp.s2[1]) > 5)) dz.push({ key: 'sm1', text: '연기 퍼진 구역', tone: 'amber', v: new V3(sp.s1[0], 2.9, -sp.s1[1]) }); }
-  return dz.concat(out.filter((o) => o.key !== 'fire')).slice(0, 5);
+  return dz.concat(out.filter((o) => o.key !== 'fire')).slice(0, 5).concat(rescueCallouts());
 }
 let cos = []; const coLayer = $('callouts');
 function showCallouts(specs) {
@@ -285,9 +286,10 @@ function updateFlow() {
   fl.querySelectorAll('.fd').forEach((d, i) => { d.className = 'fd' + (i < shown - 1 ? ' on' : ''); });
 }
 function refreshResult() {
-  const n = sim.agents.length, st = sim.stats, wait = sim.agents.filter((a) => a.state === 'wait' || a.state === 'press').length; const S = STORIES[story.story];
-  const secs = Math.round(story.tl.ev.settle != null ? story.tl.ev.settle : sim.t);
-  $('resN').innerHTML = `<span><i>대피 완료</i><b>${st.evac}명</b></span>` + (wait ? `<span><i>구조 대기</i><b>${wait}명</b></span>` : '') + `<span><i>걸린 시간</i><b>${secs}초</b></span>`;
+  const n = sim.agents.length, st = sim.stats, wait = sim.agents.filter((a) => ['wait', 'press', 'rescued', 'follow'].includes(a.state)).length; const S = STORIES[story.story];
+  const R = sim.rescue, last = Math.max(0, ...sim.agents.filter((a) => a.state === 'done').map((a) => a.doneAt));
+  const secs = Math.round(st.rescued ? last : story.tl.ev.settle != null ? story.tl.ev.settle : sim.t);
+  $('resN').innerHTML = `<span><i>스스로 대피</i><b>${st.evac - st.rescued}명</b></span>` + (st.rescued ? `<span><i>119 구조</i><b>${st.rescued}명</b></span>` : '') + (wait ? `<span><i>구조 대기</i><b>${wait}명</b></span>` : '') + `<span><i>${R.doneAt != null || !wait ? '걸린 시간' : '지난 시간'}</i><b>${secs}초</b></span>`;
   $('result').style.borderColor = { green: '#2fe083', amber: '#ffb02e', blue: '#5aa0ff' }[S.tone] || '#2fe083';
 }
 function updateChBar() {
@@ -362,23 +364,32 @@ function zoneLines(st) {
   return `<p class="pl-b">막힌 비상계단: <b>${blocked.length ? blocked.join(', ') : '없음'}</b>${st.exits.V === 'closed' ? ', 경사로도 막힘' : ''}</p><ul class="pl-r">${rows}</ul>`;
 }
 const liveZoneState = () => { const ex = sim.exitDisplay(); const tg = {}; for (const z of ZN) { const d = sim.nodes[z].dec; tg[z] = d && d.active ? d.target : null; } return { fire: sim.fires.map((f) => CARS[f.id].zone).join(''), smoke: Object.fromEntries(ZN.map((z) => [z, sim.nodes[z].stage])), exits: Object.fromEntries(Object.entries(ex).map(([k, v]) => [k, v.s])), tg, mode: sim.recommend().mode }; };
-const caseKey = (f, sm) => f + '|' + sm; const CASE_BY = Object.fromEntries(CASES.map((r) => [caseKey(r.fire, r.smokeZ), r]));
-let cSel = { fire: 'A', smokeZ: '' };
+const caseKey = (f, sm) => f + '|' + sm; const CASE_SET = Array.isArray(CASES) ? { off: CASES } : CASES; let CASE_BY = {}; let CUR = [];
+let cSel = { fire: 'A', smokeZ: '', vent: 'smart' };
 $('cFire').innerHTML = ZN.map((z) => `<button data-z="${z}">${z}</button>`).join(''); $('cSmoke').innerHTML = ZN.map((z) => `<button data-z="${z}">${z}</button>`).join('');
 const sortZ = (s) => ZN.filter((z) => s.includes(z)).join('');
 $('cFire').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; const z = b.dataset.z; let f = cSel.fire.includes(z) ? cSel.fire.replace(z, '') : cSel.fire + z; f = sortZ(f); /* may be empty: nothing burning yet */ loadCase(f, sortZ([...cSel.smokeZ].filter((x) => !f.includes(x)).join(''))); });
 $('cSmoke').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b || b.disabled) return; const z = b.dataset.z; loadCase(cSel.fire, sortZ(cSel.smokeZ.includes(z) ? cSel.smokeZ.replace(z, '') : cSel.smokeZ + z)); });
 $('cRestart').onclick = () => loadCase(cSel.fire, cSel.smokeZ);
+$('cVent').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; cSel.vent = b.dataset.v; renderTable(); loadCase(cSel.fire, cSel.smokeZ); });
+const resText = (r) => (r.rescued ? `${r.evac - r.rescued}명 대피, ${r.rescued}명 구조대가 구조` : `${r.evac}명 대피`) + (r.wait ? `, ${r.wait}명 구조 대기` : '');
 function caseRow(r) {
   const blocked = DOORS.filter((X) => r.exits[X] === 'closed').map((X) => STAIR_ZONE[X]).join(' ') + (r.exits.V === 'closed' ? ' 경사로' : '');
   const zc = ZN.map((z) => { const t = r.targets[z]; return `<td class="zt${t && /^E/.test(t) ? '' : t === 'V' ? ' rp' : ' sos'}">${t ? exitNm(t) : '-'}</td>`; }).join('');
-  return `<tr data-k="${caseKey(r.fire, r.smokeZ)}"><td class="z">${[...r.fire].join(' ')}</td><td class="z dim">${r.smokeZ ? [...r.smokeZ].join(' ') : '없음'}</td><td class="z bad">${blocked.trim() || '없음'}</td>${zc}<td><i class="lamp ${MODE_LAMP[r.mode] || 'amber'}"></i>${modeText(r.mode)}</td><td class="n">${r.evac}명 대피${r.wait ? `, ${r.wait}명 구조 대기` : ''}</td><td class="n">${r.time}초</td></tr>`;
+  return `<tr data-k="${caseKey(r.fire, r.smokeZ)}"><td class="z">${[...r.fire].join(' ')}</td><td class="z dim">${r.smokeZ ? [...r.smokeZ].join(' ') : '없음'}</td><td class="z bad">${blocked.trim() || '없음'}</td>${zc}<td><i class="lamp ${MODE_LAMP[r.mode] || 'amber'}"></i>${modeText(r.mode)}</td><td class="n">${resText(r)}</td><td class="n">${r.time}초</td></tr>`;
 }
-$('ctBody').innerHTML = CASES.map(caseRow).join('');
-{ const cnt = (m) => CASES.filter((r) => r.mode === m).length; $('ctSum').textContent = `${CASES.length}가지 경우 중 계단 대피 ${cnt('stairs') + cnt('caution')}, 경사로 대피 ${cnt('ramp')}, 고립(SOS) ${cnt('isolation') + cnt('stay') + cnt('refuge')}`; }
+const VENT_NM = { off: '환기 꺼짐', normal: '평상시 환기 그대로', smart: '스마트 환기 제어' };
+function renderTable() {
+  CUR = CASE_SET[cSel.vent] || CASE_SET.off || []; CASE_BY = Object.fromEntries(CUR.map((r) => [caseKey(r.fire, r.smokeZ), r]));
+  $('ctBody').innerHTML = CUR.map(caseRow).join(''); const cnt = (m) => CUR.filter((r) => r.mode === m).length; const sum = (k) => CUR.reduce((a, r) => a + (r[k] || 0), 0);
+  let t = `${VENT_NM[cSel.vent] || ''}: ${CUR.length}가지 경우 중 계단 대피 ${cnt('stairs') + cnt('caution')}, 경사로 대피 ${cnt('ramp')}, 고립(SOS) ${cnt('isolation') + cnt('stay') + cnt('refuge')}`;
+  if (CUR.length && 'expo2' in CUR[0]) { const off = CASE_SET.off || []; const e = sum('expo2'), e0 = off.reduce((a, r) => a + (r.expo2 || 0), 0); t += `. 짙은 연기 속에 있던 시간 합계 ${e}초` + (cSel.vent !== 'off' && e0 ? ` (환기 꺼짐 ${e0}초 대비 ${Math.round((e - e0) / e0 * 100)}%)` : ''); }
+  $('ctSum').textContent = t; $('cVent').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cSel.vent));
+}
+renderTable();
 $('ctBody').addEventListener('click', (e) => { const tr = e.target.closest('tr'); if (!tr) return; const [f, sm] = tr.dataset.k.split('|'); loadCase(f, sm); wrap.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
 function loadCase(f, sm) {
-  cSel = { fire: f, smokeZ: sm }; sim.reset({ fire: f, smokeZ: sm, smoke: 'ceil', stairs: 'ok', ramp: 'ok', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } });
+  cSel.fire = f; cSel.smokeZ = sm; sim.reset({ fire: f, smokeZ: sm, vent: cSel.vent, smoke: 'ceil', stairs: 'ok', ramp: 'ok', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } });
   afterReset(); setPlaying(true); sim.speed = 1; refreshCases();
 }
 function refreshCases() {
@@ -386,7 +397,7 @@ function refreshCases() {
   $('cFire').querySelectorAll('button').forEach((b) => b.classList.toggle('on', c.fire.includes(b.dataset.z)));
   $('cSmoke').querySelectorAll('button').forEach((b) => { const burning = c.fire.includes(b.dataset.z); b.disabled = burning; b.classList.toggle('on', !burning && (c.smokeZ || '').includes(b.dataset.z)); });
   const det = rec.mode !== 'none'; const zs = liveZoneState(); $('cPlan').innerHTML = planSVG(zs); $('cZones').innerHTML = det ? zoneLines(zs) : `<p class="pl-b">${c.fire || c.smokeZ ? '센서가 불과 연기를 찾는 중입니다.' : '불난 구역을 고르면 구역별 대피 계단이 나옵니다.'}</p>`; $('cNow').textContent = det ? actionText(sim, rec) : ''; $('cRec').dataset.tone = det ? toneOf(4, rec) : 'amber';
-  $('cRes').innerHTML = r ? `<span><i>계산 결과</i><b>${r.evac}명 대피${r.wait ? `, ${r.wait}명 구조 대기` : ''}</b></span><span><i>걸린 시간</i><b>${r.time}초</b></span>` : '';
+  $('cRes').innerHTML = r ? `<span><i>계산 결과</i><b>${resText(r)}</b></span><span><i>걸린 시간</i><b>${r.time}초</b></span>` : '';
   const k = caseKey(cSel.fire, cSel.smokeZ); $('ctBody').querySelectorAll('tr').forEach((tr) => tr.classList.toggle('cur', tr.dataset.k === k));
   showCallouts(caseCallouts());
 }
@@ -396,8 +407,33 @@ function caseCallouts() {
   for (const z of ZN) { const d = sim.nodes[z].dec; if (!d || !d.active || !d.target) continue; const t = d.target; const tone = /^E/.test(t) ? (d.mode === 'caution' ? 'amber' : 'green') : t === 'V' ? 'green' : 'blue';
     out.push({ key: 'z' + z, text: z + '구역 → ' + exitNm(t), tone, v: at(z) }); }
   for (const X of DOORS) if (sim.exitDisplay()[X].s === 'closed') out.push({ key: 'x' + X, text: STAIR_ZONE[X] + ' 비상계단 막힘', tone: 'red', v: at(X) });
+  return out.concat(rescueCallouts());
+}
+const TEAM_ST = { force: '문 강제 개방', mask: '면체 착용', approach: '요구조자에게 이동', search: '벽 따라 검색', contact: '보조 마스크 씌우는 중', escort: '한 줄로 이송 중' };
+function rescueCallouts() {
+  const out = []; for (const T of sim.rescue.teams) { if (!TEAM_ST[T.state]) continue; const c = T.members.find((m) => m.visible); if (!c) continue; out.push({ key: 'team' + T.id, text: '119 구조대 ' + (T.id + 1) + '조: ' + TEAM_ST[T.state], tone: 'red', v: new V3(c.x, rampZ(c.y) + 2.3, -c.y) }); }
   return out;
 }
+// ---- 119 link panel
+const R_STEPS = [['report', '자동 신고'], ['dispatch', '출동 지령'], ['arrive', '현장 도착'], ['entry', '진입'], ['contact', '요구조자 접촉'], ['escort', '이송 시작'], ['done', '구조 완료']];
+const mmss = (s) => Math.floor(s / 60) + '분 ' + String(Math.floor(s % 60)).padStart(2, '0') + '초';
+function r119Html() {
+  const R = sim.rescue, P = R.packet; if (R.rxAt == null || !P) return '';
+  const tm = R.teams.find((T) => TEAM_ST[T.state]); let st = '119 전송 중';
+  if (R.doneAt != null) st = '구조 완료 ' + R.rescued + '명'; else if (R.clearAt != null) st = '남은 사람 0명, 검색 생략'; else if (tm) st = (tm.id + 1) + '조 ' + TEAM_ST[tm.state]; else if (R.arrivedAt != null) st = '현장 도착'; else if (R.eta != null) st = '출동 중';
+  const sm = ZN.map((z) => `${z} <b class="${P.smoke[z] >= 2 ? 'bad' : P.smoke[z] ? '' : 'ok'}">${P.smoke[z] == null ? '?' : P.smoke[z]}</b>`).join('&nbsp; ');
+  const wait = P.wait.length ? P.wait.map((w) => `<b>${w.id === 'Q' ? '차단 공간' : w.id} ${w.n}명</b>`).join(', ') : '없음';
+  const e = P.entry; const ent = e ? `${e.name}${e.id === 'V' ? '' : `, 연기 ${e.stage}단계`}${e.locked ? ', 문 잠김(강제 개방)' : ''}${sim.cond.loc119 === false ? '' : `, 요구조자까지 ${e.dist} m`}` : '-';
+  const vent = P.vent === 'smart' ? (P.ventEx.length ? `스마트: ${P.ventEx.join(', ')}구역 배기` : '스마트: 평상시 패턴') : P.vent === 'normal' ? '평상시 패턴 가동 중' : '정지';
+  let h = `<h4>119 연동 <span class="st">${st}</span></h4><dl class="pk"><dt>위치</dt><dd>지하 3층 주차장, ${P.fire} 화재</dd><dt>연기</dt><dd>${sm}</dd><dt>사람</dt><dd>대피 완료 ${P.done}명, 이동 ${P.moving}명, 구조 대기 ${wait}</dd><dt>진입로</dt><dd>${ent}</dd><dt>환기</dt><dd>${vent}</dd></dl>`;
+  if (R.eta != null && R.arrivedAt == null) { const left = Math.max(0, R.eta - sim.t); h += `<div class="eta">도착까지 실제 약 <b>${mmss(left * TIME_K)}</b> (화면은 ${Math.round(TIME_K)}배 빠르게)</div>`; }
+  const cur = [...R_STEPS].reverse().find(([k]) => R.steps[k] != null);
+  h += '<ol>' + R_STEPS.filter(([k]) => !(R.clearAt != null && ['entry', 'contact', 'escort', 'done'].includes(k))).map(([k, nm]) => `<li class="${R.steps[k] != null ? 'on' : ''}${cur && cur[0] === k ? ' now' : ''}"><time>${R.steps[k] != null ? fmt(R.steps[k]) : '--:--'}</time>${nm}</li>`).join('') + '</ol>';
+  return h;
+}
+let r119Min = false, r119Last = '';
+function refresh119() { const el = $('r119'); const h = mode === 'landing' ? '' : r119Html(); el.hidden = !h; if (h !== r119Last) { r119Last = h; el.innerHTML = h; } el.classList.toggle('min', r119Min); el.classList.toggle('done', sim.rescue.doneAt != null || sim.rescue.clearAt != null); }
+$('r119').addEventListener('click', (e) => { if (e.target.closest('h4')) { r119Min = !r119Min; refresh119(); } });
 function enterCases() {
   if (!view.ready) return; story.stop(); setMode('cases'); setLayers({ mesh: false, ring: true, flow: false }); showCallouts([]); loadCase(cSel.fire, cSel.smokeZ);
   applyInset(); view.tween = null; view.camState.view = 'story'; const p = overviewPose(); view.camera.position.copy(p.p); view.controls.target.copy(p.t); view.camera.fov = p.fov; view.camera.updateProjectionMatrix(); view.controls.update();
@@ -408,7 +444,7 @@ view.onAfter = () => {
   if (mode === 'raw') return; updateCalloutPos();
   if (mode === 'exp') updatePicks(); else if (mode === 'story' && story.active) { const el = chs.children[story.k]; if (el) el.querySelector('u').style.width = (story.progress() * 100).toFixed(1) + '%'; }
 };
-setInterval(() => { if (!view.ready) return; if (mode === 'story' && story.active) { refreshCaption(); showCallouts(calloutSpecs(story.k)); } else if (mode === 'exp') refreshExp(); else if (mode === 'cases') refreshCases(); }, 250);
+setInterval(() => { if (!view.ready) return; refresh119(); if (mode === 'story' && story.active && story.k >= 5) refreshResult(); if (mode === 'story' && story.active) { refreshCaption(); showCallouts(calloutSpecs(story.k)); } else if (mode === 'exp') refreshExp(); else if (mode === 'cases') refreshCases(); }, 250);
 addEventListener('resize', () => setTimeout(applyInset, 60));
 
 // ------------------------------------------------------------------ boot

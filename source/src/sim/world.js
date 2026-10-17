@@ -43,6 +43,11 @@ export const MESH_EDGES = [
   ['M', 'Q'], ['C', 'Q'], ['D', 'Q'],
 ];
 
+// ventilation: one ceiling vent per zone (reversible: supply or exhaust) and two jet fans in the middle cross aisle
+export const VENTS = { VA: { x: -10.5, y: 3.5, zone: 'A' }, VB: { x: 10.5, y: 3.5, zone: 'B' }, VC: { x: -10.5, y: -3.5, zone: 'C' }, VD: { x: 10.5, y: -3.5, zone: 'D' } };
+export const JETS = { J1: { x: -6.5, y: 0 }, J2: { x: 6.5, y: 0 } };
+export const VENT_Q = { supply: 9, exhaust: -15, normalIn: 8, normalOut: -12, jet: 1.0 };
+
 export const CARS = {
   carA: { x: -10, y: 6.5, zone: 'A', type: 'CAR_EV_HATCH', color: 0x2c6fd6 },
   carB: { x: 10, y: 6.5, zone: 'B', type: 'CAR_EV_HATCH', color: 0xd8dde3 },

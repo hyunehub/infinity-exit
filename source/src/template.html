@@ -389,6 +389,21 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
 .cres span{padding:8px 10px} .cres b{font-size:16px!important}
 .eq .seg button:disabled{opacity:.3;cursor:not-allowed}
 .mode-cases .rbar{display:flex}
+/* 119 link panel: what the control room sends, and where the rescue stands */
+.r119{position:absolute;left:12px;bottom:12px;width:318px;background:var(--cr-panel);border:1px solid var(--cr-line);border-left:3px solid var(--cr-red);color:var(--cr-text);font-size:12.5px;z-index:6;box-shadow:0 6px 24px rgba(0,0,0,.45)}
+.r119 h4{margin:0;padding:7px 10px;display:flex;gap:8px;align-items:center;font-size:13.5px;font-weight:700;border-bottom:1px solid var(--cr-line);cursor:pointer;user-select:none}
+.r119 h4::before{content:"";width:8px;height:8px;background:var(--cr-red);box-shadow:0 0 8px var(--cr-red);animation:r119b 1s steps(2) infinite}
+.r119.done h4::before{background:var(--cr-green);box-shadow:0 0 8px var(--cr-green);animation:none}
+@keyframes r119b{50%{opacity:.25}}
+.r119 h4 .st{margin-left:auto;font-weight:600;font-size:12px;color:var(--cr-amber)} .r119.done h4 .st{color:var(--cr-green)}
+.r119 .pk{margin:0;padding:7px 10px;display:grid;grid-template-columns:44px 1fr;gap:3px 8px;font-size:12px;line-height:1.4}
+.r119 .pk dt{color:var(--cr-dim)} .r119 .pk dd{margin:0} .r119 .pk b{font-weight:700;color:var(--cr-amber)} .r119 .pk .ok{color:var(--cr-green)} .r119 .pk .bad{color:var(--cr-red)}
+.r119 ol{list-style:none;margin:0;padding:6px 10px 8px;border-top:1px solid var(--cr-line);display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;font-size:12px}
+.r119 li{display:flex;gap:6px;color:#5d6770} .r119 li time{font-family:var(--cr-mono);font-size:11.5px;min-width:30px} .r119 li.on{color:var(--cr-text)} .r119 li.now{color:var(--cr-amber);font-weight:600}
+.r119 .eta{padding:0 10px 8px;font-size:12px;color:var(--cr-dim)} .r119 .eta b{color:var(--cr-text);font-family:var(--cr-mono)}
+.r119.min .pk,.r119.min ol,.r119.min .eta{display:none}
+.mode-landing .r119{display:none!important} .mode-story .r119{bottom:64px}
+@media (max-width:900px){.r119{left:8px;right:8px;bottom:8px;width:auto;font-size:11.5px}.r119 .pk{grid-template-columns:40px 1fr}}
 </style>
 <div class="app mode-landing" id="app">
   <header class="bar">
@@ -408,6 +423,7 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
     <aside class="cond" id="cond" aria-label="조건 설정" hidden></aside>
 
     <div class="layer" id="callouts"></div>
+    <section class="r119" id="r119" hidden aria-live="polite"></section>
 
     <section class="cap" id="cap" data-tone="red" aria-live="polite">
       <div class="cap-h"><span class="cap-n" id="capN">1</span><b id="capT">화재 발생</b></div>
@@ -443,6 +459,7 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
         <div class="cb-h"><b>경우의 수</b><button id="cRestart" class="hbtn">⟲ 다시 시작</button></div>
         <div class="eq"><b>불난 구역</b><div class="seg" id="cFire"></div></div>
         <div class="eq"><b>연기가 넘어간 구역</b><div class="seg" id="cSmoke"></div></div>
+        <div class="eq"><b>환기 설비</b><div class="seg" id="cVent"><button data-v="off">꺼짐</button><button data-v="normal">평상시 그대로</button><button data-v="smart">스마트 제어</button></div></div>
       </div>
       <div class="plan" id="cPlan"></div>
       <div class="cb-info"><div class="cb-h"><b>구역별 대피 안내</b></div><div id="cZones"></div><div class="rec2" id="cRec" data-tone="amber"><p class="cap-m" id="cNow"></p></div></div>
@@ -465,7 +482,7 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
   <section class="ctable" id="ctable" aria-label="65가지 경우의 수 결과">
     <div class="ct-h"><h2>모든 경우의 수</h2><p id="ctSum"></p></div>
     <div class="ct-scroll"><table><thead><tr><th>불난 구역</th><th>연기 넘어간 구역</th><th>막힌 비상계단</th><th>A구역 →</th><th>B구역 →</th><th>C구역 →</th><th>D구역 →</th><th>판단</th><th>결과</th><th>걸린 시간</th></tr></thead><tbody id="ctBody"></tbody></table></div>
-    <p class="ct-note">구역별 안내는 화재 후 12초에 각 구역 기둥 화면이 보여 준 출구입니다. 사람 12명, 계단과 경사로 모두 사용 가능, 연기 차단 공간 없음 조건에서 시뮬레이션을 끝까지 돌린 결과입니다. 행을 누르면 위 3D 화면에서 그 경우를 재생합니다.</p>
+    <p class="ct-note">구역별 안내는 화재 후 12초에 각 구역 기둥 화면이 보여 준 출구입니다. 사람 12명, 계단과 경사로 모두 사용 가능, 연기 차단 공간 없음, 위에서 고른 환기 설비 조건으로 구조대 이송까지 끝까지 돌린 결과입니다. 행을 누르면 위 3D 화면에서 그 경우를 재생합니다.</p>
   </section>
   <div id="slotTools"></div>
   <div class="tools" id="tools">
