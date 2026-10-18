@@ -1,4 +1,4 @@
-// 119 link and rescue team. The control room (관리실) reports the fire to 119 automatically and keeps sending what the
+// 119 link and rescue team. When people are trapped, the control room (관리실) calls 119 automatically and keeps sending what the
 // mesh knows: where the fire is, how far the smoke has come, who is waiting where and which entrance is clean.
 // The rescue team then follows the real sequence: arrive, put on the face piece, (force the door), go in as a pair,
 // reach the people, report by radio, fit rescue masks, lead them out in a line along the way the team came in.
@@ -30,8 +30,11 @@ export class Rescue {
   // ---------------------------------------------------------------- per tick
   step(now) {
     const S = this.sim, M = S.nodes.M;
-    if (this.detectAt == null && Object.keys(M.knownFires).length) { this.detectAt = now; this.reportAt = now + 1; this.mark('detect', now); }
-    if (this.reportAt != null && this.rxAt == null && now >= this.reportAt) { this.rxAt = now; this.mark('report', now); S.addLog('관리실 → 119 자동 신고: 지하주차장 ' + this.fireText() + ' 화재, 위치와 연기 정보 전송', 'r119'); this.dispatchAt = now + 2; }
+    // 119 is called only when someone is trapped and waits for rescue: an SOS request reaches the control room,
+    // or the guidance tells people there is no way out and to wait where they are
+    const sosIn = ['S1', 'S2', 'Q'].some((id) => S.sos[id].rxAt != null), stay = M.dec && M.dec.mode === 'stay' && S.agents.some((a) => a.state === 'wait');
+    if (this.detectAt == null && (sosIn || stay)) { this.detectAt = now; this.reportAt = now + 0.5; this.mark('detect', now); }
+    if (this.reportAt != null && this.rxAt == null && now >= this.reportAt) { this.rxAt = now; this.mark('report', now); S.addLog('관리실 → 119 구조 요청 자동 전송: 지하주차장 ' + this.fireText() + ' 화재, 갇힌 사람 위치와 인원, 연기 정보', 'r119'); this.dispatchAt = now + 2; }
     if (this.dispatchAt != null && this.eta == null && now >= this.dispatchAt) { this.eta = now + T_ARR; this.mark('dispatch', now); S.addLog('119 출동 지령: 구조대 출발 (도착까지 실제 약 7분)', 'r119'); }
     if (this.rxAt != null) for (const id of ['S1', 'S2', 'Q']) { const s = S.sos[id]; if (s.rxAt != null && !this.sent[id]) { this.sent[id] = now; S.addLog('119에 요구조자 위치 추가 전송: ' + (id === 'Q' ? '차단 공간 Q' : id + ' SOS') + ' ' + s.n + '명', 'r119'); } }
     if (this.rxAt != null && now - this.pktAt >= 1) { this.pktAt = now; this.packet = this.makePacket(now); }

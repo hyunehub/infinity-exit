@@ -417,7 +417,7 @@ function rescueCallouts() {
   return out;
 }
 // ---- 119 link panel
-const R_STEPS = [['report', '자동 신고'], ['dispatch', '출동 지령'], ['arrive', '현장 도착'], ['entry', '진입'], ['contact', '요구조자 접촉'], ['escort', '이송 시작'], ['done', '구조 완료']];
+const R_STEPS = [['report', '구조 요청'], ['dispatch', '출동 지령'], ['arrive', '현장 도착'], ['entry', '진입'], ['contact', '요구조자 접촉'], ['escort', '이송 시작'], ['done', '구조 완료']];
 const mmss = (s) => Math.floor(s / 60) + '분 ' + String(Math.floor(s % 60)).padStart(2, '0') + '초';
 function r119Html() {
   const R = sim.rescue, P = R.packet; if (R.rxAt == null || !P) return '';
