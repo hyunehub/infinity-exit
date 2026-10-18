@@ -378,12 +378,12 @@ function caseRow(r) {
   const zc = ZN.map((z) => { const t = r.targets[z]; return `<td class="zt${t && /^E/.test(t) ? '' : t === 'V' ? ' rp' : ' sos'}">${t ? exitNm(t) : '-'}</td>`; }).join('');
   return `<tr data-k="${caseKey(r.fire, r.smokeZ)}"><td class="z">${[...r.fire].join(' ')}</td><td class="z dim">${r.smokeZ ? [...r.smokeZ].map((z) => (z === 'R' ? '경사로' : z)).join(' ') : '없음'}</td><td class="z bad">${blocked.trim() || '없음'}</td>${zc}<td><i class="lamp ${MODE_LAMP[r.mode] || 'amber'}"></i>${modeText(r.mode)}</td><td class="n">${resText(r)}</td><td class="n">${r.time}초</td></tr>`;
 }
-const VENT_NM = { off: '환기 꺼짐', normal: '평상시 환기 그대로', smart: '고립 시 통로 확보' };
+const VENT_NM = { off: '환기 꺼짐', normal: '평상시 환기 그대로', smart: '구조 대기 때만 팬 가동' };
 function renderTable() {
   const rampOn = cSel.smokeZ.includes('R'); CUR = (CASE_SET[cSel.vent] || CASE_SET.off || []).filter((r) => r.smokeZ.includes('R') === rampOn); CASE_BY = Object.fromEntries(CUR.map((r) => [caseKey(r.fire, r.smokeZ), r]));
   $('ctBody').innerHTML = CUR.map(caseRow).join(''); const cnt = (m) => CUR.filter((r) => r.mode === m).length; const sum = (k) => CUR.reduce((a, r) => a + (r[k] || 0), 0);
   let t = `${VENT_NM[cSel.vent] || ''}, 경사로 연기 ${rampOn ? '있음' : '없음'}: ${CUR.length}가지 경우 중 계단 대피 ${cnt('stairs') + cnt('caution')}, 경사로 대피 ${cnt('ramp')}, 고립(SOS) ${cnt('isolation') + cnt('stay') + cnt('refuge')}`;
-  { const iso = CUR.filter((r) => ['isolation', 'stay', 'refuge'].includes(r.mode)), self = iso.filter((r) => !r.rescued && !r.wait).length; if (iso.length) t += ` (고립 중 ${self}가지는 ${cSel.vent === 'smart' ? '팬으로 연 통로로' : '나중에 열린 출구로'} 스스로 대피, ${iso.length - self}가지는 구조대가 구조)`; }
+  { const iso = CUR.filter((r) => ['isolation', 'stay', 'refuge'].includes(r.mode)), self = iso.filter((r) => !r.rescued && !r.wait).length; if (iso.length) t += ` (고립 중 ${self}가지는 나중에 열린 출구로 스스로 대피, ${iso.length - self}가지는 구조대가 구조)`; }
   if (CUR.length && 'expo2' in CUR[0]) { const off = (CASE_SET.off || []).filter((r) => r.smokeZ.includes('R') === rampOn); const e = sum('expo2'), e0 = off.reduce((a, r) => a + (r.expo2 || 0), 0); t += `. 짙은 연기 속에 있던 시간 합계 ${e}초` + (cSel.vent !== 'off' && e0 ? ` (환기 꺼짐 ${e0}초 대비 ${Math.round((e - e0) / e0 * 100)}%)` : ''); }
   $('ctSum').textContent = t; $('cVent').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === cSel.vent));
 }
@@ -412,7 +412,7 @@ function caseCallouts() {
 }
 const TEAM_ST = { force: '문 강제 개방', mask: '면체 착용', approach: '요구조자에게 이동', search: '벽 따라 검색', contact: '보조 마스크 씌우는 중', escort: '한 줄로 이송 중' };
 function rescueCallouts() {
-  const out = [], V = sim.vent; if (V.mode === 'smart' && V.target && (V.phase === 'clear' || V.phase === 'hold')) { const at = nodePos(V.target, new V3()); out.push({ key: 'path', text: V.phase === 'clear' ? '통로 확보 중: ' + STAIR_ZONE[V.target] + '구역 급기' : '팬으로 연 통로: ' + NODE_NAME(V.target), tone: V.phase === 'clear' ? 'blue' : 'green', v: at }); }
+  const out = [], V = sim.vent; if (V.mode === 'smart' && V.phase === 'hold') for (const sid of V.sos) out.push({ key: 'shelter' + sid, text: sid + ' 대기 구역: 맑은 공기 급기 중', tone: 'blue', v: nodePos(sid, new V3()).setY(2.6) });
   for (const T of sim.rescue.teams) { if (!TEAM_ST[T.state]) continue; const c = T.members.find((m) => m.visible); if (!c) continue; out.push({ key: 'team' + T.id, text: '119 구조대 ' + (T.id + 1) + '조: ' + TEAM_ST[T.state], tone: 'red', v: new V3(c.x, rampZ(c.y) + 2.3, -c.y) }); }
   return out;
 }

@@ -1,5 +1,5 @@
 // Simulation orchestrator: field + virtual nodes + mesh + agents + SOS/rescue + conditions. No DOM / three.
-import { NODE_DEFS, NODE_IDS, PILLARS, DOORS, SOSS, GUIDE_NODES, MESH_EDGES, CARS, FIRE_KEYS, FIRE_R, HOP, DT, DEFAULT_SPAWNS, rnd32, NODE_NAME, rampZ, DOOR_CAP, SWITCH_M, V_WALK, VENTS, JETS, VENT_Q, STAIR_ZONE } from './world.js';
+import { NODE_DEFS, NODE_IDS, PILLARS, DOORS, SOSS, GUIDE_NODES, MESH_EDGES, CARS, FIRE_KEYS, FIRE_R, HOP, DT, DEFAULT_SPAWNS, rnd32, NODE_NAME, rampZ, DOOR_CAP, SWITCH_M, V_WALK, VENTS, JETS, VENT_Q, STAIR_ZONE, SOS_VENTS } from './world.js';
 import { Nav, GW } from './nav.js';
 import { Field, FW, FH, FCS, FX0, FY0 } from './field.js';
 import { Rescue } from './rescue.js';
@@ -183,7 +183,7 @@ export class Sim {
     for (const cid of r.fires) if (!(cid in n.knownFires)) { n.knownFires[cid] = r.ts; if (n.id === 'M') this.addLog(r.id + ' 노드 화재 감지 → ' + CARS[cid].zone + ' 차량 (메시 전파)', 'mesh'); }
   }
   decideNode(n) {
-    const prev = n.dec; const ctx = { now: this.t, nav: this.nav, nodes: this.nodes, cfg: { refuge: this.cond.refuge }, flow: this.vent.mode !== 'off' && this.cond.flowPred ? this.flowPred : null, clearing: this.vent.phase === 'clear' || this.vent.phase === 'hold' ? this.vent.target : null, power: this.power, hz: n.hzBuf || this.hzA, stageBuf: n.stBuf || new Uint8Array(this.nav.n), goals: this.goals, nodeIds: NODE_IDS };
+    const prev = n.dec; const ctx = { now: this.t, nav: this.nav, nodes: this.nodes, cfg: { refuge: this.cond.refuge }, flow: this.vent.mode !== 'off' && this.cond.flowPred ? this.flowPred : null, power: this.power, hz: n.hzBuf || this.hzA, stageBuf: n.stBuf || new Uint8Array(this.nav.n), goals: this.goals, nodeIds: NODE_IDS };
     n.dec = decide(n, ctx);
     if (prev) {
       if (n.t === 'door') { const a = prev.exits[n.id].s, b = n.dec.exits[n.id].s; if (a !== b) this.addLog(NODE_NAME(n.id) + ': ' + stText(a) + ' → ' + stText(b) + ' (' + whyText(n.dec.exits[n.id].why) + ')', 'exit'); }
@@ -197,63 +197,43 @@ export class Sim {
   // to supply, and the jet fans turn to blow clean air toward the exhausted zones.
   ventInit() {
     const mode = this.cond.vent || 'off'; const q = {}, jv = {}; for (const id in VENTS) q[id] = 0; for (const id in JETS) jv[id] = [0, 0];
-    this.vent = { mode, q, jv, tq: Object.assign({}, q), tj: { J1: [0, 0], J2: [0, 0] }, switchAt: 0, acc: 0, phase: 'normal', tried: [], target: null, isoSince: null, plan: null };
+    this.vent = { mode, q, jv, tq: Object.assign({}, q), tj: { J1: [0, 0], J2: [0, 0] }, switchAt: 0, acc: 0, phase: 'normal', sos: [], sig: '' };
     if (mode !== 'off') { const p = this.normalPattern(); Object.assign(this.vent.q, p.q); Object.assign(this.vent.tq, p.q); for (const id in JETS) { this.vent.jv[id] = p.jets[id].slice(); this.vent.tj[id] = p.jets[id].slice(); } }
     this.applyVent(); this.flowPred = null; this.fcJob = null;
   }
-  normalPattern() { return { q: { VA: VENT_Q.normalIn, VC: VENT_Q.normalIn, VB: VENT_Q.normalOut, VD: VENT_Q.normalOut }, jets: { J1: [VENT_Q.jet, 0], J2: [VENT_Q.jet, 0] } }; }
+  normalPattern() { const q = {}; for (const id in VENTS) q[id] = 0; Object.assign(q, { VA: VENT_Q.normalIn, VC: VENT_Q.normalIn, VB: VENT_Q.normalOut, VD: VENT_Q.normalOut }); return { q, jets: { J1: [VENT_Q.jet, 0], J2: [VENT_Q.jet, 0] } }; }
   // smart: the everyday pattern runs until the fire is known, then every fan stops (left running, the fans would only carry
-  // the smoke around). Only when every exit is blocked does the system run them again, to open ONE escape route: the stair
-  // the digital twin says clears soonest gets fresh air (supply), the other zones are exhausted and the jet fans blow away
-  // from that stair. When everybody is out, the fans stop again.
-  pathPattern(X) {
-    const z = STAIR_ZONE[X], P = NODE_DEFS[z], q = {}, jets = {}; for (const id in VENTS) q[id] = VENTS[id].zone === z ? VENT_Q.supply : VENT_Q.exhaust;
-    for (const id in JETS) { const j = JETS[id], dx = j.x - P.x, dy = j.y - P.y, m = Math.hypot(dx, dy) || 1; jets[id] = [dx / m * VENT_Q.jet, dy / m * VENT_Q.jet]; }
+  // the smoke around). The fans run again only while people are trapped and waiting for 119 at an SOS area: the fresh-air
+  // diffuser above that waiting area blows clean air in, the zone vents around it exhaust, and the jet fans push away from
+  // it, so the waiting area stays breathable until the rescue team gets there. When the last of them is out, the fans stop.
+  shelterPattern(list) {
+    const q = {}, jets = {}; for (const id in VENTS) q[id] = 0;
+    for (const id in SOS_VENTS) if (list.includes(SOS_VENTS[id].sos)) q[id] = VENT_Q.shelter;
+    for (const id of ['VA', 'VB', 'VC', 'VD']) { const v = VENTS[id]; if (list.some((sid) => Math.sign(NODE_DEFS[sid].x) === Math.sign(v.x))) q[id] = VENT_Q.exhaust; }
+    for (const id in JETS) { const j = JETS[id]; if (list.length !== 1) { jets[id] = [0, 0]; continue; } const P = NODE_DEFS[list[0]], dx = j.x - P.x, m = Math.abs(dx) || 1; jets[id] = [dx / m * VENT_Q.jet, 0]; }
     return { q, jets };
   }
   stopPattern() { const q = {}, jets = {}; for (const id in VENTS) q[id] = 0; for (const id in JETS) jets[id] = [0, 0]; return { q, jets }; }
   setFans(p, now, msg) { const V = this.vent; V.tq = p.q; V.tj = p.jets; V.switchAt = now + 1.5; if (msg) this.addLog(msg, 'vent'); } // the command travels over the mesh to the fan panel
+  // SOS areas where people are waiting for (or being helped by) the rescue team, or on their way there
+  shelterList() { const out = []; for (const sid of SOSS) if (this.agents.some((a) => a.state !== 'done' && a.target === sid && (a.kind === 'sos' || a.state === 'rescued' || a.state === 'follow'))) out.push(sid); return out; }
   stepPath(now) {
-    const V = this.vent, M = this.nodes.M, iso = !!(M.dec && ['isolation', 'stay', 'refuge'].includes(M.dec.mode));
+    const V = this.vent, M = this.nodes.M;
     if (V.phase === 'normal') { if (Object.keys(M.knownFires).length) { V.phase = 'idle'; this.setFans(this.stopPattern(), now, '화재 감지: 환기 설비 정지 (평상시 바람이 연기를 퍼뜨리지 않게)'); this.predict(now); } return; }
-    if (V.phase === 'idle') { if (!iso) { V.isoSince = null; return; } if (V.isoSince == null) V.isoSince = now; if (now - V.isoSince >= 2) this.planPath(now); return; }
-    if (V.phase === 'plan') return this.stepPlan(now);
-    if (V.phase === 'clear') {
-      if (this.exitDisplay()[V.target].s !== 'closed' || !iso) { V.phase = 'hold'; V.openAt = now; this.addLog(NODE_NAME(V.target) + ' 통로 확보: 팬을 돌린 지 ' + Math.round(now - V.startAt) + '초 만에 열림, 그쪽으로 대피 안내', 'vent'); }
-      else if (now - V.startAt > 60) { V.tried.push(V.target); this.addLog(NODE_NAME(V.target) + ' 60초 안에 열리지 않음: 다른 계단으로 다시 계산', 'vent'); this.planPath(now); }
-      return;
+    if (now - (V.chkAt || -9) < 1) return; V.chkAt = now;
+    const iso = !!(M.dec && ['isolation', 'stay'].includes(M.dec.mode)); const list = this.shelterList(); const sig = list.join(',');
+    if (V.phase === 'idle' || V.phase === 'done') { if (iso && list.length) { V.phase = 'hold'; V.sos = list; V.sig = sig; V.startAt = now; this.setFans(this.shelterPattern(list), now, '119 구조 대기: ' + list.join(', ') + ' 대기 구역 급기, 주변 구역 배기 (구조대가 올 때까지 버티기)'); } return; }
+    if (V.phase === 'hold') {
+      if (!list.length) { V.phase = 'done'; V.sos = []; this.setFans(this.stopPattern(), now, '구조 대기 끝: 환기 설비 다시 정지'); return; }
+      if (sig !== V.sig) { V.sig = sig; V.sos = list; this.setFans(this.shelterPattern(list), now, '구조 대기 구역 변경: ' + list.join(', ') + ' 급기'); }
     }
-    if (V.phase === 'hold') { // keep the route open until nobody needs it any more, then stop the fans
-      const need = this.agents.some((a) => a.state !== 'done' && !a.team && a.state !== 'rescued' && a.state !== 'follow');
-      if (need) { V.byeAt = null; return; } if (V.byeAt == null) V.byeAt = now;
-      if (now - V.byeAt >= 5) { V.phase = 'done'; this.setFans(this.stopPattern(), now, '대피 끝: 환기 설비 다시 정지'); }
-    }
-  }
-  planPath(now) {
-    const V = this.vent, fz = this.fires.map((f) => CARS[f.id].zone);
-    const cands = DOORS.filter((X) => { const n = this.nodes[X], ap = NODE_DEFS[X].appr; return !V.tried.includes(X) && n.door !== 'locked' && n.beyond < 2 && !fz.includes(STAIR_ZONE[X]) && !this.fires.some((f) => Math.hypot(ap[0] - f.x, ap[1] - f.y) < FIRE_R + 1); });
-    if (!cands.length) { V.phase = 'fail'; this.addLog('통로 확보 불가: 열 수 있는 비상계단이 없음 (문 잠김, 계단실 연기, 불)', 'vent'); return; }
-    V.phase = 'plan'; V.plan = { cands: cands.map((X) => { const p = this.pathPattern(X); return { X, cfg: this.ventCfg(p.q, p.jets), clearAt: null }; }), i: 0, J: null };
-    this.addLog('모든 출구 막힘: 통로 후보 ' + cands.map((X) => STAIR_ZONE[X]).join(', ') + ' 비상계단을 디지털 트윈으로 계산', 'vent');
-  }
-  // twin run per candidate (40 s ahead, 50 steps a tick): when do that stair's door and zone pillar fall below smoke stage 2?
-  stepPlan(now) {
-    const V = this.vent, P = V.plan, c = P.cands[P.i]; if (!P.J) { P.J = this.forecastStart(c.cfg, this.twin2 || (this.twin2 = new Field())); P.J.clr = null; }
-    const J = P.J, T = J.T, d = NODE_DEFS[c.X], pl = NODE_DEFS[d.pillar], stg = (x, y) => { const r = T.read(x, y, this.tmp); return sstageRaw(r.ceil / 0.7, r.low / 0.7); }; // a sensor at stage 2 only steps down below 70% of the threshold
-    for (let n = 0; n < 50 && J.k < 400; n++) { const k = ++J.k, t = J.t0 + k * 0.1; T.jetK = Math.min(1, t / 15); T.step(0.1, t);
-      if (k % 10 === 0) { const st = Math.max(stg(d.x + (d.x < 0 ? 0.6 : -0.6), d.y), stg(pl.x, pl.y)); if (st < 2) { if (J.clr == null) J.clr = t; } else J.clr = null; } }
-    if (J.k < 400) return; c.clearAt = J.clr; P.i++; P.J = null; if (P.i < P.cands.length) return;
-    const ok = P.cands.filter((x) => x.clearAt != null).sort((a, b) => a.clearAt - b.clearAt); const far = (x) => Math.min(...this.fires.map((f) => Math.hypot(NODE_DEFS[x.X].x - f.x, NODE_DEFS[x.X].y - f.y)), 99);
-    const best = ok[0] || P.cands.slice().sort((a, b) => far(b) - far(a))[0]; V.target = best.X; V.phase = 'clear'; V.startAt = now; V.expect = best.clearAt != null ? Math.max(0, Math.round(best.clearAt - J.t0 + CFG.REOPEN_PATH + 1.5)) : null; // + checking time + command delay
-    this.setFans(this.pathPattern(best.X), now, '통로 확보 시작: ' + NODE_NAME(best.X) + ' 쪽 급기, 나머지 구역 배기, 제트팬은 ' + STAIR_ZONE[best.X] + '구역 반대쪽으로' + (V.expect != null ? ' (예상 개방 ' + V.expect + '초 뒤)' : ' (40초 안 개방 예측 없음, 불에서 가장 먼 계단)'));
-    this.predict(now);
   }
   ventText() {
     const V = this.vent; if (V.mode === 'off') return '정지'; if (V.mode === 'normal') return '평상시 패턴 계속 가동';
-    return { normal: '평상시 패턴', idle: '정지 (화재 감지, 고립 시에만 가동)', plan: '모든 출구 막힘: 통로 후보 계산 중', clear: '통로 확보 중: ' + NODE_NAME(V.target || ''), hold: '통로 확보됨: ' + NODE_NAME(V.target || ''), done: '정지 (대피 끝)', fail: '통로 확보 불가' }[V.phase] || '';
+    return { normal: '평상시 패턴', idle: '정지 (화재 감지, 구조 대기 때만 가동)', hold: (V.sos || []).join(', ') + ' 대기 구역 급기 중 (버티기)', done: '정지 (구조 대기 끝)' }[V.phase] || '';
   }
   ventCfg(q, jv) {
-    const vents = Object.keys(VENTS).map((id) => ({ id, x: VENTS[id].x, y: VENTS[id].y, q: q[id], zone: ZONE_RECT[VENTS[id].zone] }));
+    const vents = Object.keys(VENTS).map((id) => ({ id, x: VENTS[id].x, y: VENTS[id].y, q: q[id] || 0, zone: VENTS[id].rect || ZONE_RECT[VENTS[id].zone], protect: VENTS[id].rect || null }));
     const jets = Object.keys(JETS).map((id) => { const [vx, vy] = jv[id], v = Math.hypot(vx, vy); return { id, x: JETS[id].x, y: JETS[id].y, dx: v ? vx / v : 1, dy: v ? vy / v : 0, v }; });
     return { vents, jets };
   }
@@ -274,11 +254,6 @@ export class Sim {
     for (const id in JETS) { const a = V.jv[id], b = V.tj[id]; const dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy); if (d < 1e-4) continue; const k = Math.min(1, rj / d); a[0] += dx * k; a[1] += dy * k; ch += d * k * 4; }
     if (ch > 0) { V.acc += ch; if (V.acc > 0.5 || ch < 1e-3) { V.acc = 0; this.applyVent(); } }
     else if (V.acc > 0) { V.acc = 0; this.applyVent(); }
-    // smoke that drifted into a zone thins out once that zone's vent pulls it out or pushes fresh air in
-    if (V.mode === 'smart' && (V.phase === 'clear' || V.phase === 'hold')) for (const f of this.field.forces) {
-      if (!f.zone) continue; const q = V.q['V' + f.zone], on = q <= VENT_Q.exhaust * 0.7 || q >= VENT_Q.supply * 0.7; if (on && f.onAt == null) f.onAt = now;
-      if (f.onAt != null) f.cMin = undefined; // stops being topped up; from here the airflow itself has to clear it (same physics as the twin)
-    }
   }
   // predicted smoke paths: trace the known airflow (building draft + vents + jet fans + the fire's own ceiling jet) from each fire.
   // by[fireId][exit] = seconds after ignition when the traced smoke reaches that exit's door (or the ramp mouth)

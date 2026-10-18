@@ -45,8 +45,11 @@ export const MESH_EDGES = [
 
 // ventilation: one ceiling vent per zone (reversible: supply or exhaust) and two jet fans in the middle cross aisle
 export const VENTS = { VA: { x: -10.5, y: 3.5, zone: 'A' }, VB: { x: 10.5, y: 3.5, zone: 'B' }, VC: { x: -10.5, y: -3.5, zone: 'C' }, VD: { x: 10.5, y: -3.5, zone: 'D' } };
+// fresh-air supply above each SOS waiting area: only used while people wait there for the rescue team
+export const SOS_VENTS = { VS1: { x: -11.8, y: 0, sos: 'S1', rect: { x0: -14, x1: -9.2, y0: -2.2, y1: 2.2 } }, VS2: { x: 11.8, y: 0, sos: 'S2', rect: { x0: 9.2, x1: 14, y0: -2.2, y1: 2.2 } } };
+for (const id in SOS_VENTS) VENTS[id] = Object.assign({ zone: null }, SOS_VENTS[id]);
 export const JETS = { J1: { x: -6.5, y: 0 }, J2: { x: 6.5, y: 0 } };
-export const VENT_Q = { supply: 9, exhaust: -15, normalIn: 8, normalOut: -12, jet: 1.0 };
+export const VENT_Q = { supply: 9, exhaust: -15, normalIn: 8, normalOut: -12, jet: 1.0, shelter: 7 };
 
 export const CARS = {
   carA: { x: -10, y: 6.5, zone: 'A', type: 'CAR_EV_HATCH', color: 0x2c6fd6 },

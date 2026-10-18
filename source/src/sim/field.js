@@ -94,9 +94,10 @@ export class Field {
     }
     this.c.set(c2); this.th.set(th2);
     // forcing regions (manual condition overrides)
+    const shield = this.vents.filter((v) => v.protect && v.q > 0.3).map((v) => v.protect); // fresh air pushes the drifting smoke back out of a sheltered area
     for (const r of this.forces) {
       const i0 = Math.max(0, Math.floor((r.x0 - FX0) / FCS)), i1 = Math.min(FW - 1, Math.floor((r.x1 - FX0) / FCS)), j0 = Math.max(0, Math.floor((r.y0 - FY0) / FCS)), j1 = Math.min(FH - 1, Math.floor((r.y1 - FY0) / FCS));
-      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * FW + i; if (!air[k]) continue; if (r.cMax !== undefined) { if (c[k] > r.cMax) c[k] = r.cMax; if (r.cMax < 1) th[k] = Math.min(th[k], 0.5); } if (r.cMin !== undefined && c[k] < r.cMin) { c[k] += (r.cMin - c[k]) * 0.25; th[k] = Math.max(th[k], r.th || 0); } }
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * FW + i; if (!air[k]) continue; if (shield.length && r.cMin !== undefined && shield.some((q) => { const x = FX0 + (i + .5) * FCS, y = FY0 + (j + .5) * FCS; return x >= q.x0 && x <= q.x1 && y >= q.y0 && y <= q.y1; })) continue; if (r.cMax !== undefined) { if (c[k] > r.cMax) c[k] = r.cMax; if (r.cMax < 1) th[k] = Math.min(th[k], 0.5); } if (r.cMin !== undefined && c[k] < r.cMin) { c[k] += (r.cMin - c[k]) * 0.25; th[k] = Math.max(th[k], r.th || 0); } }
     }
     // exhaust vents take smoke out of the ceiling layer (and the layer lifts back up);
     // supply vents dilute it with fresh air (a little less near the grille than an exhaust takes out)
