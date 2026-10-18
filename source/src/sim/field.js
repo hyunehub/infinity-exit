@@ -109,6 +109,7 @@ export class Field {
   }
   // derived sensor readings at (x,y)
   read(x, y, out) {
+    x = Math.max(FX0 + 0.26, Math.min(FX0 + FW * FCS - 0.26, x)); // wall-mounted sensors (x = +-14) read the cell just inside the wall
     const k = this.idx(x, y); if (k < 0 || !this.air[k]) { out.ceil = 0; out.low = 0; out.th = 0; out.c = 0; return out; }
     const fx = (x - FX0) / FCS, fy = (y - FY0) / FCS; const c = this._s(this.c, fx, fy, k), th = this._s(this.th, fx, fy, k);
     out.c = c; out.th = th; out.ceil = c * sstep(0.15, 0.85, th); out.low = c * 0.92 * sstep(1.5, 2.3, th); return out;

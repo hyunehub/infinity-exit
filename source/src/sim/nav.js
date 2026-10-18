@@ -69,7 +69,7 @@ export class Nav {
         const v = nj * GW + ni; if (!walk[v]) continue;
         if (o[0] !== 0 && o[1] !== 0 && (!walk[uj * GW + ni] || !walk[nj * GW + ui])) continue;
         let inside = false;
-        if (hz && hz[v] < margin) { if (!(ub && hz[v] > hz[u])) continue; inside = true; }
+        if (hz && hz[v] < margin) { if (!(ub && (hz[v] > hz[u] || hz[v] > 0.05))) continue; inside = true; } // already in the margin band: may move along it, never into the danger circle
         const len = o[2] * CS; let w = len * (1 + (stage ? 1.5 * stage[v] : 0)); if (inside) w += len * 3;
         const nd = d + w; if (nd < dist[v]) { dist[v] = nd; prev[v] = u; this._push(nd, v); }
       }

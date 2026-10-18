@@ -359,16 +359,25 @@ export class Sim {
     }
     if (a.kind && pk.id !== a.target && (a.kind === 'sos' || a.kind === 'refuge')) this.releaseSlot(a);
     a.replanAt = now + 1.0 + (a.id % 4) * 0.1;
-    if (!pk.id) { a.target = null; a.kind = 'stay'; a.path = null; return true; }
+    if (!pk.id) { a.target = null; a.kind = 'stay'; a.path = this.safeSpot(a, node); a.pi = a.path && a.path.length >= 4 ? 1 : 0; return true; }
     let goal = this.goals[pk.id]; let tx = null, ty = null;
     if (pk.id === 'V') goal = this.goals.V3;
     if (pk.kind === 'sos' || pk.kind === 'refuge') { const sp = this.takeSlot(a, pk.id); if (sp) { goal = nav.snap(sp[0], sp[1]); tx = sp[0]; ty = sp[1]; } }
     const path = nav.path(goal, node.hzBuf);
     a.target = pk.id; a.kind = pk.kind; a.mode = pk.mode;
-    if (!path) { a.path = null; a.kind = 'stay'; return true; }
+    if (!path) { a.kind = 'stay'; a.target = null; nav.run(a.x, a.y, node.hzBuf, node.stBuf); a.path = this.safeSpot(a, node); a.pi = a.path && a.path.length >= 4 ? 1 : 0; return true; }
     if (tx != null) { path.push(tx, ty); }
     a.path = path; a.pi = path.length >= 4 ? 1 : 0;
     return true;
+  }
+  // nowhere to go: walk to the reachable spot farthest from the fire, with the least smoke, and wait there (not next to the fire)
+  // (nav.dist must hold the run from the agent)
+  safeSpot(a, node) {
+    const nav = this.nav; let best = -1, bs = -1e9;
+    for (let c = 0; c < nav.n; c++) { const d = nav.dist[c]; if (!isFinite(d) || d > 40) continue; const x = nav.cx(c), y = nav.cy(c); if (y > 10) continue;
+      let fd = 99; for (const f of this.fires) fd = Math.min(fd, Math.hypot(x - f.x, y - f.y)); const sc = Math.min(fd, 14) - 3 * (node.stBuf ? node.stBuf[c] : 0) - 0.04 * d; if (sc > bs) { bs = sc; best = c; } }
+    if (best < 0 || Math.hypot(nav.cx(best) - a.x, nav.cy(best) - a.y) < 1) return null;
+    return nav.path(best, node.hzBuf);
   }
   // people ahead of `a` in the queue for stair door X (already waiting, or heading there and closer)
   queueAhead(a, X) {
@@ -459,7 +468,7 @@ export class Sim {
   turnTo(a, ang, dt) { const e = wrap(ang - a.yaw), m = 9.4 * dt; a.yaw = wrap(a.yaw + Math.max(-m, Math.min(m, e))); }
   move(a, now) {
     if (now >= a.replanAt) this.plan(a, now);
-    if (a.kind === 'stay' || !a.path) { a.anim = a.crouch ? 'WaitCrouch' : 'Idle'; if (a.kind === 'stay') { a.state = 'wait'; a.waitSince = now; a.faceYaw = a.yaw; } return; }
+    if (!a.path) { a.anim = a.crouch ? 'WaitCrouch' : 'Idle'; if (a.kind === 'stay') { a.state = 'wait'; a.waitSince = now; a.faceYaw = a.yaw; } return; }
     const p = a.path; let tx = p[a.pi * 2], ty = p[a.pi * 2 + 1];
     if (a.pi * 2 >= p.length) { return this.arrive(a, now); }
     let dx = tx - a.x, dy = ty - a.y, d = Math.hypot(dx, dy);
