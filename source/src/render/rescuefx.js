@@ -60,10 +60,10 @@ export class AirFX {
     const V = sim.vent; const on = V && V.mode !== 'off'; this.group.visible = on; if (!on) return; this.t += dt; const sdt = sim.playing ? dt * sim.speed : 0;
     for (const id in VENTS) {
       const q = V.q[id], st = q > 0.3 ? 'supply' : q < -0.3 ? 'exhaust' : 'off', c = COL[st], k = Math.min(1, Math.abs(q) / 9);
-      const fan = this.fans[id]; fan.material.color.copy(c); fan.rotation.z += sdt * (q >= 0 ? 1 : -1) * (2 + 14 * k);
+      const fan = this.fans[id]; fan.material.color.copy(c); if (st !== 'off') fan.rotation.z += sdt * (q >= 0 ? 1 : -1) * (2 + 14 * k);
       this.rings[id].material.color.copy(c).multiplyScalar(0.55 + 0.45 * k * (0.75 + 0.25 * Math.sin(this.t * 5)));
       this.rips[id].forEach((r, i) => { r.visible = !this.low; let ph = (this.t * 0.55 + i * 0.5) % 1; if (st === 'exhaust') ph = 1 - ph; const s = 0.7 + ph * 2.3; r.scale.set(s, s, 1); r.material.color.copy(c).multiplyScalar(st === 'off' ? 0 : (1 - Math.abs(ph - 0.5) * 2) * 0.7 * k); });
-      const sp = this.labels[id]; if (sp.material.map !== this.tex[st]) { sp.material.map = this.tex[st]; sp.material.needsUpdate = true; }
+      const sp = this.labels[id]; sp.visible = st !== 'off'; this.rings[id].visible = st !== 'off'; if (sp.material.map !== this.tex[st]) { sp.material.map = this.tex[st]; sp.material.needsUpdate = true; }
     }
     for (const id in JETS) { const J = this.jets[id], [vx, vy] = V.jv[id], v = Math.hypot(vx, vy); if (v > 0.02) J.yaw = Math.atan2(vy, vx); J.g.rotation.y = J.yaw; J.fan.rotation.x += sdt * v * 40; J.arrow.visible = v > 0.05; J.arrow.material.opacity = Math.min(0.9, v * 1.6); }
     // streaks follow the ceiling airflow (base draft + vents + jet fans + the fires' ceiling jets)
@@ -71,7 +71,7 @@ export class AirFX {
     const NP = this.low ? this.N >> 1 : this.N; for (let q = 0; q < NP; q++) { const p = this.P[q];
       p.life += sdt; if (p.life >= p.max) { p.x = -13.5 + Math.random() * 27; p.y = -9.6 + Math.random() * 19.3; p.life = 0; p.max = 2.2 + Math.random() * 2.5; }
       const k = F.idx(p.x, p.y); if (k < 0 || !F.air[k]) { p.life = p.max; continue; }
-      const ux = F.ux[k] + F.jetK * F.jx[k] * 0.4, uy = F.uy[k] + F.jetK * F.jy[k] * 0.4, sp = Math.hypot(ux, uy);
+      const [ux, uy] = F.ventAt(p.x, p.y), sp = Math.hypot(ux, uy); // only the air the fans move: no fan running, no streaks
       p.x += ux * sdt * K; p.y += uy * sdt * K; if (p.y > 10.2) p.life = p.max;
       if (sp < 0.06) continue; const f = Math.min(1, p.life / 0.4, (p.max - p.life) / 0.6) * Math.min(1, sp * 2.2);
       this._e.set(0, Math.atan2(uy, ux), 0); this._q.setFromEuler(this._e); this._v.set(p.x, CEIL - 0.55, -p.y); this._s.set(Math.max(0.05, f) * (0.6 + sp), 1, Math.max(0.05, f)); this._m.compose(this._v, this._q, this._s); this.streak.setMatrixAt(n++, this._m);

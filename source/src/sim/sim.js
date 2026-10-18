@@ -198,12 +198,11 @@ export class Sim {
   ventInit() {
     const mode = this.cond.vent || 'off'; const q = {}, jv = {}; for (const id in VENTS) q[id] = 0; for (const id in JETS) jv[id] = [0, 0];
     this.vent = { mode, q, jv, tq: Object.assign({}, q), tj: { J1: [0, 0], J2: [0, 0] }, switchAt: 0, acc: 0, phase: 'normal', sos: [], sig: '' };
-    if (mode !== 'off') { const p = this.normalPattern(); Object.assign(this.vent.q, p.q); Object.assign(this.vent.tq, p.q); for (const id in JETS) { this.vent.jv[id] = p.jets[id].slice(); this.vent.tj[id] = p.jets[id].slice(); } }
+    if (mode === 'normal') { /* smart mode: the fans stay still until people wait for rescue */ const p = this.normalPattern(); Object.assign(this.vent.q, p.q); Object.assign(this.vent.tq, p.q); for (const id in JETS) { this.vent.jv[id] = p.jets[id].slice(); this.vent.tj[id] = p.jets[id].slice(); } }
     this.applyVent(); this.flowPred = null; this.fcJob = null;
   }
   normalPattern() { const q = {}; for (const id in VENTS) q[id] = 0; Object.assign(q, { VA: VENT_Q.normalIn, VC: VENT_Q.normalIn, VB: VENT_Q.normalOut, VD: VENT_Q.normalOut }); return { q, jets: { J1: [VENT_Q.jet, 0], J2: [VENT_Q.jet, 0] } }; }
-  // smart: the everyday pattern runs until the fire is known, then every fan stops (left running, the fans would only carry
-  // the smoke around). The fans run again only while people are trapped and waiting for 119 at an SOS area: the fresh-air
+  // smart: the fans stay still (left running, they would only carry the smoke around). They run only while people are trapped and waiting for 119 at an SOS area: the fresh-air
   // diffuser above that waiting area blows clean air in, the zone vents around it exhaust, and the jet fans push away from
   // it, so the waiting area stays breathable until the rescue team gets there. When the last of them is out, the fans stop.
   shelterPattern(list) {
@@ -219,7 +218,7 @@ export class Sim {
   shelterList() { const out = []; for (const sid of SOSS) if (this.agents.some((a) => a.state !== 'done' && a.target === sid && (a.kind === 'sos' || a.state === 'rescued' || a.state === 'follow'))) out.push(sid); return out; }
   stepPath(now) {
     const V = this.vent, M = this.nodes.M;
-    if (V.phase === 'normal') { if (Object.keys(M.knownFires).length) { V.phase = 'idle'; this.setFans(this.stopPattern(), now, '화재 감지: 환기 설비 정지 (평상시 바람이 연기를 퍼뜨리지 않게)'); this.predict(now); } return; }
+    if (V.phase === 'normal') { if (Object.keys(M.knownFires).length) { V.phase = 'idle'; this.predict(now); } return; } // fans are already still
     if (now - (V.chkAt || -9) < 1) return; V.chkAt = now;
     const iso = !!(M.dec && ['isolation', 'stay'].includes(M.dec.mode)); const list = this.shelterList(); const sig = list.join(',');
     if (V.phase === 'idle' || V.phase === 'done') { if (iso && list.length) { V.phase = 'hold'; V.sos = list; V.sig = sig; V.startAt = now; this.setFans(this.shelterPattern(list), now, '119 구조 대기: ' + list.join(', ') + ' 대기 구역 급기, 주변 구역 배기 (구조대가 올 때까지 버티기)'); } return; }
@@ -230,7 +229,7 @@ export class Sim {
   }
   ventText() {
     const V = this.vent; if (V.mode === 'off') return '정지'; if (V.mode === 'normal') return '평상시 패턴 계속 가동';
-    return { normal: '평상시 패턴', idle: '정지 (화재 감지, 구조 대기 때만 가동)', hold: (V.sos || []).join(', ') + ' 대기 구역 급기 중 (버티기)', done: '정지 (구조 대기 끝)' }[V.phase] || '';
+    return { normal: '정지 (구조 대기 때만 가동)', idle: '정지 (구조 대기 때만 가동)', hold: (V.sos || []).join(', ') + ' 대기 구역 급기 중 (버티기)', done: '정지 (구조 대기 끝)' }[V.phase] || '';
   }
   ventCfg(q, jv) {
     const vents = Object.keys(VENTS).map((id) => ({ id, x: VENTS[id].x, y: VENTS[id].y, q: q[id] || 0, zone: VENTS[id].rect || ZONE_RECT[VENTS[id].zone], protect: VENTS[id].rect || null }));
