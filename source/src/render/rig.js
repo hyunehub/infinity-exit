@@ -99,6 +99,10 @@ export function rescueMask(info) { // the yellow rescue hood / mask fitted to th
   ], false);
   return toGeo(g, info, info.headC);
 }
+export function rescueCloth(info) { // the wet cloth / towel held over nose and mouth by people without a hood
+  const r = info.headR / info.k;
+  return toGeo(colored(at(new THREE.BoxGeometry(r * 1.15, r * 0.7, 0.025), 0, -r * 0.55, r * 1.0, -0.15, 0, 0), '#dfe8ee'), info, info.headC);
+}
 // rigid attachment: vertex world = boneWorld * boneInverse * bindMatrix * v (same as skinning with weight 1)
 export function attach(model, info, boneName, geo, mat) {
   const b = model.getObjectByName(boneName); if (!b) return null; const m = new THREE.Mesh(geo, mat); m.matrixAutoUpdate = false;
@@ -122,6 +126,8 @@ export class Poser {
       case 'search': return [[0.5, -0.05, 0.28], [-0.08, 0.05, 0.3]];             // left hand sweeping the wall, thermal camera in front
       case 'lead': return [null, [-0.1, 0.06, 0.34]];                            // thermal camera forward
       case 'hold': return [null, [-0.04, 0.0, 0.52]];                            // hand on the shoulder of the person in front
+      case 'cover': return [[0.02, 0.27, 0.15], null];                           // wet cloth held over nose and mouth
+      case 'holdcover': return [[0.02, 0.27, 0.15], [-0.04, 0.0, 0.52]];         // cloth over the mouth and a hand on the shoulder in front
       default: return null;
     }
   }

@@ -7,6 +7,11 @@ import { NODE_DEFS, DOORS, CARS, FIRE_R, DT, rampZ, NODE_NAME, STAIR_ZONE } from
 export const T_ARR = 35;                 // dispatch -> on scene, in sim seconds (about 7 min in reality, shown compressed)
 export const TIME_K = 420 / T_ARR;       // real seconds per sim second while the team is on the way
 const V_IN = 1.3, V_LOW = 0.95, V_SEARCH = 0.55, V_OUT = 0.9, GAP = 0.95, PER_TEAM = 6, SIZEUP = 8;
+// a fire engine carries only a couple of smoke hoods (e.g. two per appliance in UK services), so a team cannot hood everyone:
+// the people who breathed the most smoke get them, the rest cover nose and mouth with a wet cloth and stay low.
+// Before leading the line out the team radios the control room to exhaust the zones on the way out and waits a moment.
+export const HOODS = 2; const PURGE_T = 6;
+const zoneOf = (x, y) => (Math.abs(y) > 10 ? null : (y >= 0 ? (x < 0 ? 'A' : 'B') : (x < 0 ? 'C' : 'D')));
 const EXIT_PT = (X) => (X === 'V' ? [0, 40.8] : NODE_DEFS[X].appr);
 const SOS_C = { S1: [-12, 0], S2: [12, 0], Q: [0, -11.2] };
 // wall search tour (no location info): lane ends around the lot, walked in order from the entry
@@ -81,7 +86,7 @@ export class Rescue {
       const e = this.loc ? this.pickEntry(g.x, g.y) : this.blindEntry(); if (!e) return;
       const p0 = EXIT_PT(e.id); const take = g.members.slice().sort((a, b) => Math.hypot(a.x - p0[0], a.y - p0[1]) - Math.hypot(b.x - p0[0], b.y - p0[1])).slice(0, PER_TEAM); // a pair leads at most 6 people
       for (const a of take) a.team = T; g.members = take; if (S.sos[g.id]) S.sos[g.id].status = 'rescue';
-      Object.assign(T, { group: g, entry: e.id, entryInfo: e, state: e.locked && !T.trips ? 'force' : 'mask', t0: now, victims: take.slice(), trail: [], fit: 0, tour: null });
+      Object.assign(T, { group: g, entry: e.id, entryInfo: e, state: e.locked && !T.trips ? 'force' : 'mask', t0: now, victims: take.slice(), trail: [], fit: 0, tour: null, hoods: HOODS, purgeAt: null });
       const p = EXIT_PT(e.id), [L, R] = T.members; const ix = e.id === 'V' ? 0 : -Math.sign(p[0]), iy = e.id === 'V' ? -1 : 0; const yaw = Math.atan2(iy, ix);
       L.place(p[0], p[1], yaw); R.place(p[0] - ix * 0.9, p[1] - iy * 0.9, yaw); S.doorFlash[e.id] = now; T.out = [-ix, -iy]; T.virt = 0;
       if (S.sos[g.id]) S.sos[g.id].status = 'rescue';
@@ -104,7 +109,10 @@ export class Rescue {
       case 'approach': {
         const v = L.stage >= 1 ? V_LOW : V_IN; const arrived = this.follow(L, v, L.stage >= 1 ? 'CrouchWalk' : 'Walk'); this.trailPush(T, L); this.trailFollow(R, T, 1.2, v + 0.3);
         const near = T.victims.some((a) => Math.hypot(a.x - L.x, a.y - L.y) < 1.7);
-        if (arrived || near) { T.state = 'contact'; T.t0 = now; this.mark('contact', now); S.addLog('구조대 ' + (T.id + 1) + '조: 요구조자 ' + T.victims.length + '명 접촉 "구조대입니다, 마스크 씌워 드릴게요"', 'r119'); for (const a of T.victims) { a.state = 'rescued'; a.faceYaw = Math.atan2(L.y - a.y, L.x - a.x); } }
+        if (arrived || near) { T.state = 'contact'; T.t0 = now; this.mark('contact', now); for (const a of T.victims) { a.state = 'rescued'; a.faceYaw = Math.atan2(L.y - a.y, L.x - a.x); }
+          const pri = T.victims.slice().sort((a, b) => (b.smokeT || 0) - (a.smokeT || 0) || b.stage - a.stage || a.id - b.id).slice(0, T.hoods); for (const a of pri) a.hood = true; const rest = T.victims.length - pri.length;
+          S.addLog('구조대 ' + (T.id + 1) + '조: 요구조자 ' + T.victims.length + '명 접촉. 방연 후드 ' + pri.length + '개는 연기를 가장 많이 마신 사람부터' + (rest ? ', 나머지 ' + rest + '명은 젖은 천으로 코와 입을 막고 낮은 자세로' : ''), 'r119');
+          if (S.vent.mode === 'smart') { const ex = EXIT_PT(T.entry), p = this.pathTo(L.x, L.y, ex[0], ex[1]); const zs = new Set(); if (p) for (let i = 0; i < p.length; i += 2) { const z = zoneOf(p[i], p[i + 1]); if (z) zs.add(z); } if (zs.size) { S.purgeRoute([...zs].sort(), now); T.purgeAt = now; } } }
         break;
       }
       case 'search': { // no location: walk the wall lanes low with the thermal camera until someone shows up within 5 m
@@ -116,11 +124,11 @@ export class Rescue {
       case 'contact': { // lead reports by radio while both fit rescue masks, one person at a time each
         const radio = dt < 1.6; L.pose = radio ? 'radio' : null; if (radio) { L.anim = 'Idle'; }
         for (const c of radio ? [R] : [L, R]) this.fitStep(T, c, now);
-        if (T.victims.every((a) => a.mask) && !T.members.some((c) => c.fitting)) {
+        if (T.victims.every((a) => a.mask || !a.hood) && !T.members.some((c) => c.fitting) && (T.purgeAt == null || now - T.purgeAt >= PURGE_T)) {
           T.state = 'escort'; T.t0 = now; this.mark('escort', now); const p = EXIT_PT(T.entry); L.path = this.pathTo(L.x, L.y, p[0], p[1]); L.pi = 1; T.trail = [L.x, L.y];
           this.route = { team: T.id, kind: 'out', pts: L.path ? L.path.slice() : [] };
           T.victims.sort((a, b) => Math.hypot(a.x - L.x, a.y - L.y) - Math.hypot(b.x - L.x, b.y - L.y)); T.victims.forEach((a, i) => { a.state = 'follow'; a.order = i; });
-          S.addLog('구조대 ' + (T.id + 1) + '조: 들어온 길로 이송 시작 (' + NODE_NAME(T.entry) + ', 앞 사람 어깨 잡고 한 줄로)', 'r119');
+          S.addLog('구조대 ' + (T.id + 1) + '조: 들어온 길로 이송 시작 (' + NODE_NAME(T.entry) + ', 낮은 자세로 앞 사람 어깨 잡고 한 줄로)', 'r119');
         }
         for (const c of T.members) if (!c.fitting && !(c === L && radio)) { c.anim = c.stage >= 1 ? 'WaitCrouch' : 'Idle'; }
         break;
@@ -144,7 +152,7 @@ export class Rescue {
   }
   // fit one rescue mask: walk up to the next person, kneel, put it on (1.6 s)
   fitStep(T, c, now) {
-    if (!c.fitting) { const a = T.victims.find((v) => !v.mask && !v.fitBy); if (!a) return; a.fitBy = c; c.fitting = a; c.fitT = null; }
+    if (!c.fitting) { const a = T.victims.find((v) => v.hood && !v.mask && !v.fitBy); if (!a) return; a.fitBy = c; c.fitting = a; c.fitT = null; }
     const a = c.fitting; const ang = Math.atan2(c.y - a.y, c.x - a.x); const tx = a.x + Math.cos(ang) * 0.75, ty = a.y + Math.sin(ang) * 0.75; const d = Math.hypot(tx - c.x, ty - c.y);
     if (c.fitT == null && d > 0.12) { this.stepToward(c, tx, ty, 1.0); c.anim = c.stage >= 1 ? 'CrouchWalk' : 'Walk'; c.pose = null; return; }
     if (c.fitT == null) c.fitT = now; c.yaw = Math.atan2(a.y - c.y, a.x - c.x); c.anim = 'WaitCrouch'; c.pose = 'fit'; a.faceYaw = Math.atan2(c.y - a.y, c.x - a.x);
@@ -169,7 +177,7 @@ export class Rescue {
     const T = a.team; if (!T) return; const p = this.trailAt(T, (a.order + 1) * GAP); if (!p) return; const d = Math.hypot(p[0] - a.x, p[1] - a.y);
     if (d > 0.12) { const want = Math.atan2(p[1] - a.y, p[0] - a.x); const e = wrap(want - a.yaw), m = 7 * DT; a.yaw = wrap(a.yaw + Math.max(-m, Math.min(m, e))); const v = Math.min(1.5, 0.5 + d * 1.1, d / DT); a.vx = Math.cos(a.yaw) * v; a.vy = Math.sin(a.yaw) * v; a.x += a.vx * DT; a.y += a.vy * DT; a.sp = v; a.anim = a.stage >= 1 || a.crouch ? 'CrouchWalk' : 'Walk'; }
     else { a.anim = a.stage >= 1 ? 'WaitCrouch' : 'Idle'; }
-    a.pose = a.order > 0 || T.members[0].visible ? 'hold' : null;
+    const hold = a.order > 0 || T.members[0].visible; a.pose = a.mask ? (hold ? 'hold' : null) : (hold ? 'holdcover' : 'cover'); // no hood: wet cloth over nose and mouth
   }
   // ---------------------------------------------------------------- what the control room sends to 119
   makePacket(now) {

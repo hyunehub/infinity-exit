@@ -411,7 +411,7 @@ function caseCallouts() {
   for (const X of DOORS) if (sim.exitDisplay()[X].s === 'closed') out.push({ key: 'x' + X, text: STAIR_ZONE[X] + ' 비상계단 막힘', tone: 'red', v: at(X) });
   return out.concat(rescueCallouts());
 }
-const TEAM_ST = { force: '문 강제 개방', mask: '면체 착용', approach: '요구조자에게 이동', search: '벽 따라 검색', contact: '보조 마스크 씌우는 중', escort: '한 줄로 이송 중' };
+const TEAM_ST = { force: '문 강제 개방', mask: '면체 착용', approach: '요구조자에게 이동', search: '벽 따라 검색', contact: '방연 후드 씌우고 배연 요청', escort: '낮은 자세로 한 줄 이송' };
 function rescueCallouts() {
   const out = [], V = sim.vent; if (V.mode === 'smart' && V.phase === 'hold') for (const sid of V.sos) out.push({ key: 'shelter' + sid, text: sid + ' 대기 구역: 맑은 공기 급기 중', tone: 'blue', v: nodePos(sid, new V3()).setY(2.6) });
   for (const T of sim.rescue.teams) { if (!TEAM_ST[T.state]) continue; const c = T.members.find((m) => m.visible); if (!c) continue; out.push({ key: 'team' + T.id, text: '119 구조대 ' + (T.id + 1) + '조: ' + TEAM_ST[T.state], tone: 'red', v: new V3(c.x, rampZ(c.y) + 2.3, -c.y) }); }
@@ -443,8 +443,9 @@ function enterCases() {
 }
 
 // ---- 119 rescue highlight: one key (R) replays the rescue of story 4 in about 20 s and stops on an end card
-const HL_PRESET = STORIES[4].preset;
-const HL_STEPS = [['call', '구조 요청'], ['go', '출동'], ['in', '진입'], ['mask', '마스크 착용'], ['out', '함께 탈출']];
+// the case the physical model ends on: fire at every board A-D, no exit left (the boards show Emergency Escape), smoke on the ramp too
+const HL_COND = { fire: 'ABCD', smokeZ: '', vent: 'smart', smoke: 'ceil', stairs: 'ok', ramp: 'dense', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } };
+const HL_STEPS = [['call', '구조 요청'], ['go', '출동'], ['in', '진입'], ['mask', '호흡 보호'], ['out', '함께 탈출']];
 const hl = { on: false, ph: null };
 const hlSteps = $('hlSteps'); hlSteps.innerHTML = HL_STEPS.map(([k, n]) => `<span data-k="${k}">${n}</span>`).join('');
 function hlPhase() {
@@ -454,10 +455,10 @@ function hlPhase() {
   return R.teams.some((T) => T.state === 'contact') ? 'mask' : 'in';
 }
 // fast where nothing changes (driving there), close to real time for the call, the truck pulling in and the masks
-function hlSpeed(ph) { const R = sim.rescue; return { call: 1, go: sim.t < R.eta - 3 ? 22 : 1.5, in: 6, mask: 4, out: 12 }[ph] || 1; }
+function hlSpeed(ph) { const R = sim.rescue; return { call: 1, go: sim.t < R.eta - 3 ? 22 : 1.5, in: 10, mask: 4, out: 12 }[ph] || 1; }
 function startHl() {
   if (!view.ready) return; story.stop(); setMode('hl'); setLayers({ mesh: false, ring: true, flow: false }); showCallouts([]);
-  sim.preset(HL_PRESET); afterReset(); const R = sim.rescue; for (let k = 0; R.detectAt == null && k < 900; k++) sim.step(); // skip ahead to people waiting at the SOS posts
+  sim.reset(Object.assign({}, HL_COND)); afterReset(); const R = sim.rescue; for (let k = 0; R.detectAt == null && k < 900; k++) sim.step(); // skip ahead to people waiting at the SOS posts
   hl.on = true; hl.ph = null; $('hlEnd').classList.remove('on'); view.tween = null; view.camState.view = 'story';
   const p = overviewPose(); view.camera.position.copy(p.p); view.controls.target.copy(p.t); view.camera.fov = p.fov; view.camera.updateProjectionMatrix(); view.controls.update();
   setPlaying(true); hlUpdate(0); refreshHl();
@@ -482,10 +483,10 @@ function hlCam(dt) {
 }
 function refreshHl() {
   if (mode !== 'hl') return; const R = sim.rescue, n = sim.agents.length, ph = hl.ph || 'call';
-  const T = { call: ['SOS 위치를 119로 보냅니다', `나갈 길이 모두 막혀 ${sim.agents.filter((a) => a.state !== 'done').length}명이 SOS 구역에서 구조를 기다립니다. 관리실이 위치와 인원을 119에 자동으로 보냅니다.`],
+  const T = { call: ['A~D 전 구역 화재 감지: 안내 후보 없음', `모든 출구가 제외되어 Emergency Escape. ${sim.agents.filter((a) => a.state !== 'done').length}명이 SOS를 누르고 구조를 기다립니다. 관리실이 위치와 인원을 119에 자동으로 보냅니다.`],
     go: ['119 출동', R.eta != null && sim.t < R.eta - 3 ? `구조대가 오는 중입니다. 도착까지 실제 약 ${Math.max(1, Math.round((R.eta - sim.t) * TIME_K / 60))}분` : '구조대가 도착했습니다.'],
-    in: ['구조대 진입', '전송된 위치로 바로 찾아갑니다.'], mask: ['보조 마스크 착용', '구조대가 한 사람씩 마스크를 씌워 줍니다.'],
-    out: ['구조대와 함께 탈출', `구조대를 따라 한 줄로 나갑니다. 구조 ${R.rescued} / ${n}명`], end: ['전원 구조 완료', `${n}명 모두 밖으로 나왔습니다.`] }[ph];
+    in: ['구조대 진입', '전송된 위치로 바로 찾아갑니다.'], mask: ['방연 후드는 조마다 2개', '연기를 가장 많이 마신 사람부터 후드를 씌우고, 나머지는 젖은 천으로 코와 입을 막습니다. 무전으로 나가는 길의 연기를 빼 달라고 요청합니다.'],
+    out: ['연기를 빼고 함께 탈출', `낮은 자세로 앞 사람 어깨를 잡고 한 줄로 나갑니다. 구조 ${R.rescued} / ${n}명`], end: ['전원 구조 완료', `${n}명 모두 밖으로 나왔습니다.`] }[ph];
   $('hlT').textContent = T[0]; $('hlS').textContent = T[1];
   const sp = ph === 'end' ? 1 : hlSpeed(ph); $('hlFF').textContent = sp > 1 ? '▶▶ ' + sp + '배 빠르게' : ''; $('hlFF').hidden = sp <= 1;
   const i = HL_STEPS.findIndex(([k]) => k === ph); hlSteps.querySelectorAll('span').forEach((el, j) => { el.className = ph === 'end' || j < i ? 'done' : j === i ? 'cur' : ''; });
@@ -494,7 +495,7 @@ function refreshHl() {
 }
 function hlCallCallouts() {
   const out = []; for (const id of ['S1', 'S2']) { const k = sim.agents.filter((a) => a.target === id && ['wait', 'press', 'go'].includes(a.state)).length; if (k) out.push({ key: 'hl' + id, text: id + ' SOS 대기 ' + k + '명', tone: 'blue', v: nodePos(id, new V3()).setY(2.6) }); }
-  out.push({ key: 'hlK', text: '관리실 → 119 위치 전송', tone: 'red', v: new V3(-17.6, 13.4, -9.5) }); return out;
+  out.push({ key: 'hlK', text: '관리실 → 119 위치 전송', tone: 'red', v: new V3(-17.6, 13.4, -9.5) }, { key: 'hlEE', text: 'Emergency Escape: 안내 후보 없음', tone: 'red', v: nodePos('M', new V3()).setY(2.8) }); return out;
 }
 // fold / unfold the panels over the 3D view (button in the header, the small button on the view, or H)
 function setUiMin(on) { app.classList.toggle('ui-min', on); $('uiBtn').textContent = on ? 'UI 펼치기' : 'UI 접기'; $('uiBtn').setAttribute('aria-pressed', String(on)); lastIns = ''; applyInset(); try { localStorage.setItem('uiMin', on ? '1' : ''); } catch (e) { /* storage off */ } }
@@ -527,10 +528,8 @@ async function boot() {
   const start = P.get('preset') != null ? +P.get('preset') : 0;
   const sp = P.get('story'), md = P.get('mode');
   if (P.get('preset') != null) { setMode('raw'); if (start >= 0) { presetSel.value = String(start); sim.preset(start); } else sim.reset({}); afterReset(); setPlaying(P.get('autoplay') !== '0'); }
-  else if (sp != null) { startStory(Math.max(0, Math.min(5, +sp - 1))); const ch = P.get('chapter'); if (ch != null) story.setChapter(Math.max(0, Math.min(5, +ch - 1))); if (P.get('autoplay') === '0') { story.playing = false; sim.playing = false; syncPlayBtn(); } }
-  else if (md === 'exp') enterExp();
+  else if (sp != null && P.get('keepStory')) { startStory(Math.max(0, Math.min(5, +sp - 1))); const ch = P.get('chapter'); if (ch != null) story.setChapter(Math.max(0, Math.min(5, +ch - 1))); if (P.get('autoplay') === '0') { story.playing = false; sim.playing = false; syncPlayBtn(); } }
   else if (md === 'rescue') startHl();
-  else if (md === 'story') enterLanding();
   else enterCases();
   $('speed').textContent = 'x' + sim.speed;
   try { if (localStorage.getItem('uiMin')) setUiMin(true); } catch (e) { /* storage off */ }

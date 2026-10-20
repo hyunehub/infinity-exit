@@ -116,7 +116,7 @@ res.ux.cases = await u.evaluate(() => { __v4.ui.enterCases(); __v4.ui.loadCase('
 ok(res.ux.cases.mode === 'cases' && res.ux.cases.fires === 2 && res.ux.cases.smoke === 'A' && res.ux.cases.rows === 65 && res.ux.cases.cur === 'BC|A' && res.ux.cases.rec.length > 3, 'cases mode: multi-zone fire, drifted smoke, 65-row table ' + JSON.stringify(res.ux.cases));
 res.ux.errors = u.errors; ok(u.errors.length === 0, 'ux console errors: ' + u.errors.join(' | '));
 await u.close();
-const ms = await openPage(b, 390, 844, '?q=mid&story=3&chapter=5&autoplay=0', FILE);
+const ms = await openPage(b, 390, 844, '?q=mid&story=3&chapter=5&autoplay=0&keepStory=1', FILE);
 await ms.evaluate(() => { __v4.view.running = false; __v4.advance(3); __v4.ui.snapCam(); __v4.ui.snapCam(); }); await ms.waitForTimeout(400);
 await ms.screenshot({ path: 'shots/ux6_mobile_story.png', animations: 'disabled', timeout: 90000 });
 res.ux.mobile = await ms.evaluate(() => ({ scrollW: document.documentElement.scrollWidth, innerW: innerWidth }));

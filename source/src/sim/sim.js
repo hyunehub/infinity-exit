@@ -33,7 +33,7 @@ const wrap = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI)
 
 export class Agent {
   constructor(id) { this.id = id; this.reset(0, 0); }
-  reset(x, y) { this.x = x; this.y = y; this.px = x; this.py = y; this.yaw = Math.PI / 2; this.pyaw = this.yaw; this.vx = 0; this.vy = 0; this.sp = 0; this.state = 'idle'; this.anim = 'Idle'; this.visible = true; this.inCar = false; this.path = null; this.pi = 0; this.target = null; this.kind = null; this.slot = null; this.react = 0.6; this.reactAt = 0; this.exitAt = 0; this.timer = 0; this.crouch = false; this.crouchUntil = 0; this.replanAt = 0; this.startInside = false; this.doneAt = -1; this.exitId = null; this.pressT = 0; this.lastPress = -99; this.runV = 2.2; this.carId = null; this.z = 0; this.minD = 99; this.stage = 0; this.queued = false; this.walkV = 1.1; this.wx = null; this.wy = null; this.pauseUntil = 0; this.goAt = 0; this.panic = 0; this.seeDelay = 0; this.startleEnd = 0; this.backUntil = 0; this.reactT0 = null; this.gest = false; this.team = null; this.mask = false; this.fitBy = null; this.order = 0; this.pose = null; this.rescued = false; }
+  reset(x, y) { this.x = x; this.y = y; this.px = x; this.py = y; this.yaw = Math.PI / 2; this.pyaw = this.yaw; this.vx = 0; this.vy = 0; this.sp = 0; this.state = 'idle'; this.anim = 'Idle'; this.visible = true; this.inCar = false; this.path = null; this.pi = 0; this.target = null; this.kind = null; this.slot = null; this.react = 0.6; this.reactAt = 0; this.exitAt = 0; this.timer = 0; this.crouch = false; this.crouchUntil = 0; this.replanAt = 0; this.startInside = false; this.doneAt = -1; this.exitId = null; this.pressT = 0; this.lastPress = -99; this.runV = 2.2; this.carId = null; this.z = 0; this.minD = 99; this.stage = 0; this.queued = false; this.walkV = 1.1; this.wx = null; this.wy = null; this.pauseUntil = 0; this.goAt = 0; this.panic = 0; this.seeDelay = 0; this.startleEnd = 0; this.backUntil = 0; this.reactT0 = null; this.gest = false; this.team = null; this.mask = false; this.hood = false; this.smokeT = 0; this.fitBy = null; this.order = 0; this.pose = null; this.rescued = false; }
 }
 
 export class Sim {
@@ -209,9 +209,12 @@ export class Sim {
     const q = {}, jets = {}; for (const id in VENTS) q[id] = 0;
     for (const id in SOS_VENTS) if (list.includes(SOS_VENTS[id].sos)) q[id] = VENT_Q.shelter;
     for (const id of ['VA', 'VB', 'VC', 'VD']) { const v = VENTS[id]; if (list.some((sid) => Math.sign(NODE_DEFS[sid].x) === Math.sign(v.x))) q[id] = VENT_Q.exhaust; }
+    for (const z of this.vent.purge || []) if (VENTS['V' + z]) q['V' + z] = VENT_Q.exhaust; // the rescue team's way out: exhaust its zones
     for (const id in JETS) { const j = JETS[id]; if (list.length !== 1) { jets[id] = [0, 0]; continue; } const P = NODE_DEFS[list[0]], dx = j.x - P.x, m = Math.abs(dx) || 1; jets[id] = [dx / m * VENT_Q.jet, 0]; }
     return { q, jets };
   }
+  // the rescue team asks (by radio, through the control room) to clear the smoke from the zones it will lead people through
+  purgeRoute(zones, now) { const V = this.vent; const add = zones.filter((z) => !(V.purge || []).includes(z)); if (!add.length) return; V.purge = (V.purge || []).concat(add); if (V.phase === 'hold') this.setFans(this.shelterPattern(V.sos), now, '구조대 요청: 나가는 길 ' + add.join(', ') + '구역 배연'); }
   stopPattern() { const q = {}, jets = {}; for (const id in VENTS) q[id] = 0; for (const id in JETS) jets[id] = [0, 0]; return { q, jets }; }
   setFans(p, now, msg) { const V = this.vent; V.tq = p.q; V.tj = p.jets; V.switchAt = now + 1.5; if (msg) this.addLog(msg, 'vent'); } // the command travels over the mesh to the fan panel
   // SOS areas where people are waiting for (or being helped by) the rescue team, or on their way there
@@ -229,7 +232,7 @@ export class Sim {
   }
   ventText() {
     const V = this.vent; if (V.mode === 'off') return '정지'; if (V.mode === 'normal') return '평상시 패턴 계속 가동';
-    return { normal: '정지 (구조 대기 때만 가동)', idle: '정지 (구조 대기 때만 가동)', hold: (V.sos || []).join(', ') + ' 대기 구역 급기 중 (버티기)', done: '정지 (구조 대기 끝)' }[V.phase] || '';
+    return { normal: '정지 (구조 대기 때만 가동)', idle: '정지 (구조 대기 때만 가동)', hold: (V.sos || []).join(', ') + ' 대기 구역 급기 중 (버티기)' + (V.purge && V.purge.length ? ', 나가는 길 ' + V.purge.join(', ') + '구역 배연' : ''), done: '정지 (구조 대기 끝)' }[V.phase] || '';
   }
   ventCfg(q, jv) {
     const vents = Object.keys(VENTS).map((id) => ({ id, x: VENTS[id].x, y: VENTS[id].y, q: q[id] || 0, zone: VENTS[id].rect || ZONE_RECT[VENTS[id].zone], protect: VENTS[id].rect || null }));
@@ -407,7 +410,7 @@ export class Sim {
   stepAgent(a, now) {
     a.px = a.x; a.py = a.y; a.pyaw = a.yaw; a.vx = a.vy = 0; a.sp = 0;
     if (a.state === 'done') return;
-    const st = this.stageAt(a); a.stage = st;
+    const st = this.stageAt(a); a.stage = st; if (st >= 2) a.smokeT += DT; // time spent in dense smoke: who gets a smoke hood first
     if (st >= 1) a.crouchUntil = now + 1.5; a.crouch = now < a.crouchUntil;
     switch (a.state) {
       case 'idle': {
@@ -453,11 +456,11 @@ export class Sim {
         break;
       }
       case 'rescued': { // the rescue team is here: stand up (stay low in smoke), face them, mask goes on
-        a.anim = a.stage >= 1 ? 'WaitCrouch' : 'Idle'; a.pose = null; this.turnTo(a, a.faceYaw, DT); break;
+        a.anim = a.stage >= 1 ? 'WaitCrouch' : 'Idle'; a.pose = a.mask || a.fitBy || a.stage < 1 ? null : 'cover'; this.turnTo(a, a.faceYaw, DT); break;
       }
       case 'follow': this.rescue.stepFollower(a); break;
       case 'wait': {
-        a.anim = 'WaitCrouch'; this.turnTo(a, a.faceYaw, DT); if (a.team) break;
+        a.anim = 'WaitCrouch'; a.pose = a.stage >= 1 ? 'cover' : null; this.turnTo(a, a.faceYaw, DT); if (a.team) break; // waiting in smoke: cloth over nose and mouth
         const node = this.nearestGuide(a); const sosId = a.target;
         if (a.kind === 'sos' && now - a.lastPress > 28 && a.stage >= 2) { a.state = 'press'; a.pressT0 = now; this.pressSOS(a, sosId); }
         if (node && node.dec && ['stairs', 'ramp', 'caution'].includes(node.dec.mode) && now - (a.waitSince || 0) > 8) { this.releaseSlot(a); a.state = 'go'; this.plan(a, now); }

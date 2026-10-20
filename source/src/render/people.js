@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { clone as skClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { rampZ } from '../sim/world.js';
-import { measure, recolorCrew, crewGear, rescueMask, attach, Poser, beamMaterial } from './rig.js';
+import { measure, recolorCrew, crewGear, rescueMask, rescueCloth, attach, Poser, beamMaterial } from './rig.js';
 
 const NAMES = ['Run', 'CrouchWalk', 'Idle', 'PressButton', 'WaitCrouch'];
 const SHIRTS = [0x2f7ad0, 0xd0452f, 0x2fa05a, 0xe0b030, 0x8a4fc0, 0x25a3a8, 0xd06fa0, 0xf0f0f0, 0xe07a30, 0x4f5fd0, 0x7a9a30, 0xb03030];
@@ -12,9 +12,9 @@ const lerpAng = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.
 export class People {
   constructor(scene, template, n, opts = {}) {
     this.scene = scene; this.n = n; this.groups = []; this.models = []; this.mixers = []; this.actions = []; this.cur = []; this.skinned = []; this.frontOffset = opts.frontOffset || 0;
-    this.crew = !!opts.crew; this.posers = []; this.masks = []; this.beams = []; this.tics = []; const info = this.info = measure(template);
-    let gear = null, maskGeo = null; const gearMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.08 }); this.gearMat = gearMat;
-    if (info) { if (this.crew) { gear = crewGear(info); this.beamMat = beamMaterial(); } else maskGeo = rescueMask(info); }
+    this.crew = !!opts.crew; this.posers = []; this.masks = []; this.cloths = []; this.beams = []; this.tics = []; const info = this.info = measure(template);
+    let gear = null, maskGeo = null, clothGeo = null; const gearMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0.08 }); this.gearMat = gearMat;
+    if (info) { if (this.crew) { gear = crewGear(info); this.beamMat = beamMaterial(); } else { maskGeo = rescueMask(info); clothGeo = rescueCloth(info); } }
     // normalise template height / ground
     template.scene.updateMatrixWorld(true); const box = new THREE.Box3().setFromObject(template.scene, true); const h = box.max.y - box.min.y; this.scale = (h > 0.2 && Math.abs(h - 1.7) / 1.7 > 0.06) ? 1.7 / h : 1; this.yOff = -box.min.y * this.scale;
     this.clips = {}; const anims = template.animations || []; this.single = !NAMES.every((nm) => anims.some((c) => c.name === nm));
@@ -37,7 +37,7 @@ export class People {
       });
       if (info) {
         if (gear) { attach(m, info, 'Head', gear.head, gearMat); attach(m, info, 'Chest', gear.back, gearMat); const bm = attach(m, info, 'Chest', gear.beam, this.beamMat); if (bm) bm.renderOrder = 12; this.beams.push(bm); this.tics.push(attach(m, info, 'Hand_R', gear.tic, gearMat)); }
-        else if (maskGeo) { const mk = attach(m, info, 'Head', maskGeo, gearMat); if (mk) mk.visible = false; this.masks.push(mk); }
+        else if (maskGeo) { const mk = attach(m, info, 'Head', maskGeo, gearMat); if (mk) mk.visible = false; this.masks.push(mk); const cl = attach(m, info, 'Head', clothGeo, gearMat); if (cl) cl.visible = false; this.cloths.push(cl); }
         this.posers.push(new Poser(m, info));
       }
       scene.add(g); this.groups.push(g); this.models.push(m);
@@ -76,6 +76,7 @@ export class People {
       this.play(i, a.anim, ts); this.mixers[i].update(step);
       const ps = this.posers[i]; if (ps && (a.pose || ps.w.L > 0.01 || ps.w.R > 0.01)) { g.updateMatrixWorld(true); ps.apply(a.pose, step); }
       if (this.masks[i]) this.masks[i].visible = !!a.mask;
+      if (this.cloths[i]) this.cloths[i].visible = !a.mask && (a.pose === 'cover' || a.pose === 'holdcover');
       if (this.crew && this.tics[i]) this.tics[i].visible = a.role === 'lead';
       this._v.set(x, z + 0.03, -y); this._m.compose(this._v, y > 11 ? this._q1 : this._q0, this._s); this.blob.setMatrixAt(i, this._m);
     }

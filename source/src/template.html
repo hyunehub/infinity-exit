@@ -429,6 +429,7 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
 .hl-card .t{margin-top:8px;font-family:var(--cr-mono);color:var(--cr-green);font-size:16px}
 .hl-card .bt{margin-top:20px;display:flex;gap:8px;justify-content:center}
 #modeHl.on{border-color:var(--cr-red);color:#fff}
+#modeStory,#modeExp{display:none!important} /* story and experiment tabs removed from the page */
 /* folded UI: only the 3D scene, its labels and a small button to bring the panels back */
 .uitog{display:none}
 .ui-min .uitog{display:block;position:absolute;right:12px;top:12px;z-index:8;font-size:13px;padding:6px 12px;background:var(--cr-panel);color:var(--cr-text);border:1px solid var(--cr-line-2)}
@@ -441,7 +442,7 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
     <h1><b>∞번 출구</b><span class="h-sub">스마트 대피 시뮬레이션</span><span class="h-loc">B3 지하주차장</span></h1>
     <div class="grp oldbar"><span class="lbl">자동 시나리오</span><select id="preset" aria-label="자동 시나리오"></select></div>
     <div class="grp oldbar"><button class="primary" id="play" aria-label="재생 또는 일시정지">▶ 시작</button><button id="reset" aria-label="처음부터 다시">⟲ 다시</button><button id="speed" aria-label="재생 속도">x1</button></div>
-    <div class="grp rbar"><button id="modeCases" class="seg-b" aria-label="경우의 수">경우의 수</button><button id="modeStory" class="seg-b" aria-label="스토리 모드">스토리</button><button id="modeExp" class="seg-b" aria-label="실험 모드">실험</button><button id="modeHl" class="seg-b hlb" aria-label="119 구조 장면 (단축키 R)" title="단축키 R">119 구조</button><button id="uiBtn" aria-pressed="false" title="단축키 H">UI 접기</button><button id="setBtn" aria-expanded="false" aria-label="보기 설정">보기 설정</button></div>
+    <div class="grp rbar"><button id="modeCases" class="seg-b" aria-label="경우의 수">경우의 수</button><button id="modeStory" class="seg-b" hidden>스토리</button><button id="modeExp" class="seg-b" hidden>실험</button><button id="modeHl" class="seg-b hlb" aria-label="Emergency Escape: A~D 전 구역 화재 때 119 구조 장면 (단축키 R)" title="A~D 전 구역 화재, 119 구조 (단축키 R)">Emergency Escape</button><button id="uiBtn" aria-pressed="false" title="단축키 H">UI 접기</button><button id="setBtn" aria-expanded="false" aria-label="보기 설정">보기 설정</button></div>
   </header>
   <div class="canvaswrap" id="wrap">
     <canvas id="cv" aria-label="지하주차장 3D 장면"></canvas>
@@ -457,7 +458,7 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
     <div class="layer" id="callouts"></div>
     <section class="r119" id="r119" hidden aria-live="polite"></section>
     <div class="hl" id="hl">
-      <section class="hl-cap" aria-live="polite"><span class="hl-k">119 구조</span><b id="hlT"></b><p id="hlS"></p></section>
+      <section class="hl-cap" aria-live="polite"><span class="hl-k">Emergency Escape → 119 구조</span><b id="hlT"></b><p id="hlS"></p></section>
       <div class="hl-ff" id="hlFF" hidden></div>
       <div class="hl-steps" id="hlSteps"></div>
       <div class="hl-end" id="hlEnd"><div class="hl-card"><div class="hl-sign"><span>∞</span><span>→</span></div><h2>전원 구조 완료</h2><p id="hlEndN"></p><p class="t" id="hlEndT"></p><div class="bt"><button id="hlAgain">다시 보기 (R)</button><button id="hlClose" class="primary">닫기</button></div></div></div>
