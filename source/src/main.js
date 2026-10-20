@@ -379,7 +379,7 @@ function caseRow(r) {
   const zc = ZN.map((z) => { const t = r.targets[z]; return `<td class="zt${t && /^E/.test(t) ? '' : t === 'V' ? ' rp' : ' sos'}">${t ? exitNm(t) : '-'}</td>`; }).join('');
   return `<tr data-k="${caseKey(r.fire, r.smokeZ)}"><td class="z">${[...r.fire].join(' ')}</td><td class="z dim">${r.smokeZ ? [...r.smokeZ].map((z) => (z === 'R' ? '경사로' : z)).join(' ') : '없음'}</td><td class="z bad">${blocked.trim() || '없음'}</td>${zc}<td><i class="lamp ${MODE_LAMP[r.mode] || 'amber'}"></i>${modeText(r.mode)}</td><td class="n">${resText(r)}</td><td class="n">${r.time}초</td></tr>`;
 }
-const VENT_NM = { off: '환기 꺼짐', normal: '평상시 환기 그대로', smart: '구조 대기 때만 팬 가동' };
+const VENT_NM = { off: '환기 꺼짐', normal: '평상시 환기 그대로', smart: '화재 때 팬 정지, 연기 예측' };
 function renderTable() {
   const rampOn = cSel.smokeZ.includes('R'); CUR = (CASE_SET[cSel.vent] || CASE_SET.off || []).filter((r) => r.smokeZ.includes('R') === rampOn); CASE_BY = Object.fromEntries(CUR.map((r) => [caseKey(r.fire, r.smokeZ), r]));
   $('ctBody').innerHTML = CUR.map(caseRow).join(''); const cnt = (m) => CUR.filter((r) => r.mode === m).length; const sum = (k) => CUR.reduce((a, r) => a + (r[k] || 0), 0);
@@ -411,9 +411,9 @@ function caseCallouts() {
   for (const X of DOORS) if (sim.exitDisplay()[X].s === 'closed') out.push({ key: 'x' + X, text: STAIR_ZONE[X] + ' 비상계단 막힘', tone: 'red', v: at(X) });
   return out.concat(rescueCallouts());
 }
-const TEAM_ST = { force: '문 강제 개방', mask: '면체 착용', approach: '요구조자에게 이동', search: '벽 따라 검색', contact: '방연 후드 씌우고 배연 요청', escort: '낮은 자세로 한 줄 이송' };
+const TEAM_ST = { force: '문 강제 개방', mask: '면체 착용', approach: '요구조자에게 이동', search: '벽 따라 검색', contact: '요구조자 접촉, 무전 보고', escort: '낮은 자세로 한 줄 이송' };
 function rescueCallouts() {
-  const out = [], V = sim.vent; if (V.mode === 'smart' && V.phase === 'hold') for (const sid of V.sos) out.push({ key: 'shelter' + sid, text: sid + ' 대기 구역: 맑은 공기 급기 중', tone: 'blue', v: nodePos(sid, new V3()).setY(2.6) });
+  const out = [];
   for (const T of sim.rescue.teams) { if (!TEAM_ST[T.state]) continue; const c = T.members.find((m) => m.visible); if (!c) continue; out.push({ key: 'team' + T.id, text: '119 구조대 ' + (T.id + 1) + '조: ' + TEAM_ST[T.state], tone: 'red', v: new V3(c.x, rampZ(c.y) + 2.3, -c.y) }); }
   return out;
 }
@@ -444,8 +444,8 @@ function enterCases() {
 
 // ---- 119 rescue highlight: one key (R) replays the rescue of story 4 in about 20 s and stops on an end card
 // the case the physical model ends on: fire at every board A-D, no exit left (the boards show Emergency Escape), smoke on the ramp too
-const HL_COND = { fire: 'ABCD', smokeZ: '', vent: 'smart', smoke: 'ceil', stairs: 'ok', ramp: 'dense', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } };
-const HL_STEPS = [['call', '구조 요청'], ['go', '출동'], ['in', '진입'], ['mask', '호흡 보호'], ['out', '함께 탈출']];
+const HL_COND = { fire: 'ABCD', smokeZ: '', vent: 'off', smoke: 'ceil', stairs: 'ok', ramp: 'dense', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } };
+const HL_STEPS = [['call', '구조 요청'], ['go', '출동'], ['in', '진입'], ['mask', '접촉'], ['out', '함께 탈출']];
 const hl = { on: false, ph: null };
 const hlSteps = $('hlSteps'); hlSteps.innerHTML = HL_STEPS.map(([k, n]) => `<span data-k="${k}">${n}</span>`).join('');
 function hlPhase() {
@@ -455,7 +455,7 @@ function hlPhase() {
   return R.teams.some((T) => T.state === 'contact') ? 'mask' : 'in';
 }
 // fast where nothing changes (driving there), close to real time for the call, the truck pulling in and the masks
-function hlSpeed(ph) { const R = sim.rescue; return { call: 1, go: sim.t < R.eta - 3 ? 22 : 1.5, in: 10, mask: 4, out: 12 }[ph] || 1; }
+function hlSpeed(ph) { const R = sim.rescue; return { call: 1, go: sim.t < R.eta - 3 ? 22 : 1.5, in: 10, mask: 1, out: 12 }[ph] || 1; }
 function startHl() {
   if (!view.ready) return; story.stop(); setMode('hl'); setLayers({ mesh: false, ring: true, flow: false }); showCallouts([]);
   sim.reset(Object.assign({}, HL_COND)); afterReset(); const R = sim.rescue; for (let k = 0; R.detectAt == null && k < 900; k++) sim.step(); // skip ahead to people waiting at the SOS posts
@@ -483,10 +483,10 @@ function hlCam(dt) {
 }
 function refreshHl() {
   if (mode !== 'hl') return; const R = sim.rescue, n = sim.agents.length, ph = hl.ph || 'call';
-  const T = { call: ['A~D 전 구역 화재 감지: 안내 후보 없음', `모든 출구가 제외되어 Emergency Escape. ${sim.agents.filter((a) => a.state !== 'done').length}명이 SOS를 누르고 구조를 기다립니다. 관리실이 위치와 인원을 119에 자동으로 보냅니다.`],
+  const T = { call: ['A~D 전 구역 화재 감지: 안내 후보 없음', `모든 출구가 제외되어 Emergency Escape. ${sim.agents.filter((a) => a.state !== 'done').length}명이 SOS를 누르고 젖은 수건으로 코와 입을 막고 낮은 자세로 기다립니다. 관리실이 위치와 인원을 119에 자동으로 보냅니다.`],
     go: ['119 출동', R.eta != null && sim.t < R.eta - 3 ? `구조대가 오는 중입니다. 도착까지 실제 약 ${Math.max(1, Math.round((R.eta - sim.t) * TIME_K / 60))}분` : '구조대가 도착했습니다.'],
-    in: ['구조대 진입', '전송된 위치로 바로 찾아갑니다.'], mask: ['방연 후드는 조마다 2개', '연기를 가장 많이 마신 사람부터 후드를 씌우고, 나머지는 젖은 천으로 코와 입을 막습니다. 무전으로 나가는 길의 연기를 빼 달라고 요청합니다.'],
-    out: ['연기를 빼고 함께 탈출', `낮은 자세로 앞 사람 어깨를 잡고 한 줄로 나갑니다. 구조 ${R.rescued} / ${n}명`], end: ['전원 구조 완료', `${n}명 모두 밖으로 나왔습니다.`] }[ph];
+    in: ['구조대 진입', '전송된 위치로 바로 찾아갑니다.'], mask: ['구조대 도착', '구조대가 무전으로 보고하고, 사람들은 젖은 수건을 댄 채 따라 나갈 준비를 합니다.'],
+    out: ['구조대와 함께 탈출', `젖은 수건으로 코와 입을 막고, 낮은 자세로 앞 사람 어깨를 잡고 한 줄로 나갑니다. 구조 ${R.rescued} / ${n}명`], end: ['전원 구조 완료', `${n}명 모두 밖으로 나왔습니다.`] }[ph];
   $('hlT').textContent = T[0]; $('hlS').textContent = T[1];
   const sp = ph === 'end' ? 1 : hlSpeed(ph); $('hlFF').textContent = sp > 1 ? '▶▶ ' + sp + '배 빠르게' : ''; $('hlFF').hidden = sp <= 1;
   const i = HL_STEPS.findIndex(([k]) => k === ph); hlSteps.querySelectorAll('span').forEach((el, j) => { el.className = ph === 'end' || j < i ? 'done' : j === i ? 'cur' : ''; });
