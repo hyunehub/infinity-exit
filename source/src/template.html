@@ -413,15 +413,12 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
 .hl-k{font-family:var(--cr-mono);font-size:12px;font-weight:600;color:var(--cr-red);letter-spacing:.08em}
 .hl-cap b{display:block;font-size:clamp(20px,1.8vw,26px);margin:2px 0 4px;color:#fff}
 .hl-cap p{margin:0;font-size:clamp(14px,1.1vw,17px);color:var(--cr-text);opacity:.85;line-height:1.45}
-.hl-ff{position:absolute;right:14px;top:14px;z-index:7;font-family:var(--cr-mono);font-size:15px;font-weight:600;color:var(--cr-amber);border:1px solid var(--cr-amber);background:var(--cr-panel);padding:4px 10px}
-.hl-ff[hidden]{display:none}
+.hl-ff{position:absolute;right:14px;top:14px;z-index:7;display:flex;flex-direction:column;gap:6px;font-family:var(--cr-mono);font-size:15px;font-weight:600;color:var(--cr-amber);border:1px solid var(--cr-amber);background:var(--cr-panel);padding:6px 12px 8px;cursor:pointer}
+.hl-ff input{width:180px;margin:0;accent-color:var(--cr-amber);cursor:pointer}
 .hl-steps{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:7;display:flex;gap:4px;background:var(--cr-panel);border:1px solid var(--cr-line);padding:6px;max-width:calc(100% - 24px);overflow-x:auto}
 .hl-steps span{font-size:13px;padding:5px 12px;color:var(--cr-dim);border:1px solid transparent;white-space:nowrap}
 .hl-steps span.done{color:var(--cr-text)} .hl-steps span.done::before{content:"✓ ";color:var(--cr-green)}
 .hl-steps span.cur{color:#fff;border-color:var(--cr-red);background:rgba(233,73,59,.18)}
-.hl-sp{position:absolute;right:14px;bottom:16px;z-index:7;display:flex;align-items:center;gap:8px;background:var(--cr-panel);border:1px solid var(--cr-line);padding:7px 12px;font-size:13px;color:var(--cr-text)}
-.hl-sp input{width:130px;accent-color:var(--cr-amber)} .hl-sp b{font-family:var(--cr-mono);color:var(--cr-amber);min-width:44px}
-.ui-min .hl-sp{display:none}
 .hl-end{position:absolute;inset:0;z-index:9;display:none;place-items:center;background:rgba(6,9,12,.55)}
 .hl-end.on{display:grid;animation:hlIn .7s ease both}
 @keyframes hlIn{from{opacity:0}to{opacity:1}}
@@ -438,7 +435,7 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
 .ui-min .uitog{display:block;position:absolute;right:12px;top:12px;z-index:8;font-size:13px;padding:6px 12px;background:var(--cr-panel);color:var(--cr-text);border:1px solid var(--cr-line-2)}
 .ui-min #cases,.ui-min .exp,.ui-min .r119,.ui-min .cap,.ui-min .flow,.ui-min .chbar,.ui-min .result,.ui-min .hl-cap,.ui-min .hl-steps,.ui-min .hl-ff,.ui-min .ov,.ui-min .cond{display:none!important}
 #uiBtn[aria-pressed="true"]{border-color:var(--cr-amber);color:var(--cr-amber)}
-@media (max-width:900px){.hl-sp{bottom:62px;left:8px;right:auto}.hl-cap{left:8px;right:8px;width:auto;top:8px}.hl-ff{top:auto;bottom:62px;right:8px}.hl-steps span{padding:4px 8px;font-size:12px}}
+@media (max-width:900px){.hl-cap{left:8px;right:8px;width:auto;top:8px}.hl-ff{top:auto;bottom:62px;right:8px}.hl-steps span{padding:4px 8px;font-size:12px}}
 </style>
 <div class="app mode-landing" id="app">
   <header class="bar">
@@ -462,9 +459,8 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
     <section class="r119" id="r119" hidden aria-live="polite"></section>
     <div class="hl" id="hl">
       <section class="hl-cap" aria-live="polite"><span class="hl-k">Emergency Escape → 119 구조</span><b id="hlT"></b><p id="hlS"></p></section>
-      <div class="hl-ff" id="hlFF" hidden></div>
+      <label class="hl-ff"><span id="hlFF"></span><input type="range" id="hlSp" min="0.25" max="3" step="0.25" value="1" aria-label="Emergency Escape 재생 속도"></label>
       <div class="hl-steps" id="hlSteps"></div>
-      <label class="hl-sp">재생 속도 <input type="range" id="hlSp" min="0.25" max="3" step="0.25" value="1" aria-label="Emergency Escape 재생 속도"><b id="hlSpV">1배</b></label>
       <div class="hl-end" id="hlEnd"><div class="hl-card"><div class="hl-sign"><span>∞</span><span>→</span></div><h2>전원 구조 완료</h2><p id="hlEndN"></p><p class="t" id="hlEndT"></p><div class="bt"><button id="hlAgain">다시 보기 (R)</button><button id="hlClose" class="primary">닫기</button></div></div></div>
     </div>
 
