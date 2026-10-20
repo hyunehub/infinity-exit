@@ -6,7 +6,9 @@ import { NODE_DEFS, DOORS, CARS, FIRE_R, DT, rampZ, NODE_NAME, STAIR_ZONE } from
 
 export const T_ARR = 35;                 // dispatch -> on scene, in sim seconds (about 7 min in reality, shown compressed)
 export const TIME_K = 420 / T_ARR;       // real seconds per sim second while the team is on the way
-const V_IN = 1.3, V_LOW = 0.95, V_SEARCH = 0.55, V_OUT = 0.9, GAP = 0.95, PER_TEAM = 6, SIZEUP = 8;
+const V_IN = 1.3, V_LOW = 0.95, V_SEARCH = 0.55, V_OUT = 0.9, GAP = 0.95, PER_TEAM = 4, SIZEUP = 8;
+// with many people trapped more than one unit is sent: up to three pairs come, each leading at most four people out
+export const TEAMS = 3;
 // the people waiting hold a wet towel over nose and mouth; they keep it there, stay low and follow the team out
 const EXIT_PT = (X) => (X === 'V' ? [0, 40.8] : NODE_DEFS[X].appr);
 const SOS_C = { S1: [-12, 0], S2: [12, 0], Q: [0, -11.2] };
@@ -20,7 +22,7 @@ export class Crew {
 }
 
 export class Rescue {
-  constructor(sim) { this.sim = sim; this.crew = []; for (let i = 0; i < 4; i++) this.crew.push(new Crew(i, i >> 1, i % 2 ? 'rear' : 'lead')); this.reset(); }
+  constructor(sim) { this.sim = sim; this.crew = []; for (let i = 0; i < TEAMS * 2; i++) this.crew.push(new Crew(i, i >> 1, i % 2 ? 'rear' : 'lead')); this.reset(); }
   reset() {
     this.detectAt = null; this.reportAt = null; this.rxAt = null; this.dispatchAt = null; this.eta = null; this.arrivedAt = null; this.clearAt = null;
     this.sent = {}; this.packet = null; this.pktAt = -9; this.teams = []; this.rescued = 0; this.doneAt = null; this.steps = {}; this.route = null; this.planAt = -9;
@@ -75,19 +77,24 @@ export class Rescue {
     const S = this.sim; const gs = this.groups(); // people already taken by a team are not in any group
     const inside = S.agents.filter((a) => a.state !== 'done').length;
     if (!gs.length) { if (!inside && this.clearAt == null && !this.teams.length) { this.clearAt = now; S.addLog('구조대: 남은 사람 0명 확인 (메시 기록), 인명 검색 생략', 'r119'); } return; }
-    for (const g of gs) {
-      let T = this.teams.find((t) => t.state === 'standby'); if (!T && this.teams.length < 2) { T = { id: this.teams.length, state: 'standby', members: [this.crew[this.teams.length * 2], this.crew[this.teams.length * 2 + 1]], trips: 0 }; this.teams.push(T); }
-      if (!T) return;
-      // with location data: the cleanest entrance for this group. Without: the vehicle entrance (or the first stair that is not on fire)
-      const e = this.loc ? this.pickEntry(g.x, g.y) : this.blindEntry(); if (!e) return;
-      const p0 = EXIT_PT(e.id); const take = g.members.slice().sort((a, b) => Math.hypot(a.x - p0[0], a.y - p0[1]) - Math.hypot(b.x - p0[0], b.y - p0[1])).slice(0, PER_TEAM); // a pair leads at most 6 people
-      for (const a of take) a.team = T; g.members = take; if (S.sos[g.id]) S.sos[g.id].status = 'rescue';
-      Object.assign(T, { group: g, entry: e.id, entryInfo: e, state: e.locked && !T.trips ? 'force' : 'mask', t0: now, victims: take.slice(), trail: [], fit: 0, tour: null });
-      const p = EXIT_PT(e.id), [L, R] = T.members; const ix = e.id === 'V' ? 0 : -Math.sign(p[0]), iy = e.id === 'V' ? -1 : 0; const yaw = Math.atan2(iy, ix);
-      L.place(p[0], p[1], yaw); R.place(p[0] - ix * 0.9, p[1] - iy * 0.9, yaw); S.doorFlash[e.id] = now; T.out = [-ix, -iy]; T.virt = 0;
-      if (S.sos[g.id]) S.sos[g.id].status = 'rescue';
-      this.mark('entry', now); S.addLog('구조대 ' + (T.id + 1) + '조 진입: ' + NODE_NAME(e.id) + (this.loc ? ' → ' + (g.id === 'X' ? '대기 인원' : g.id) + ' (위치 정보로 바로 이동)' : ' (위치 정보 없음: 벽 따라 검색)'), 'r119');
-      if (e.locked && !T.trips) S.addLog(NODE_NAME(e.id) + ' 문 잠김: 구조대가 강제 개방', 'r119');
+    for (const g0 of gs) {
+      let left = g0.members.slice(); // a big group is split over several teams
+      while (left.length) {
+        let T = this.teams.find((t) => t.state === 'standby'); if (!T && this.teams.length < TEAMS) { T = { id: this.teams.length, state: 'standby', members: [this.crew[this.teams.length * 2], this.crew[this.teams.length * 2 + 1]], trips: 0 }; this.teams.push(T); }
+        if (!T) return;
+        // with location data: the cleanest entrance for this group. Without: the vehicle entrance (or the first stair that is not on fire)
+        const e = this.loc ? this.pickEntry(g0.x, g0.y) : this.blindEntry(); if (!e) return;
+        const p0 = EXIT_PT(e.id); left.sort((a, b) => Math.hypot(a.x - p0[0], a.y - p0[1]) - Math.hypot(b.x - p0[0], b.y - p0[1])); const take = left.slice(0, PER_TEAM); left = left.slice(PER_TEAM);
+        const g = { id: g0.id, x: g0.x, y: g0.y, members: take };
+        for (const a of take) a.team = T; if (S.sos[g.id]) S.sos[g.id].status = 'rescue';
+        Object.assign(T, { group: g, entry: e.id, entryInfo: e, state: e.locked && !T.trips ? 'force' : 'mask', t0: now, victims: take.slice(), trail: [], fit: 0, tour: null });
+        // teams going in at the same entrance at the same time line up one behind the other
+        const k = this.teams.filter((t) => t !== T && t.entry === e.id && t.state === 'mask' && now - t.t0 < 0.5).length;
+        const p = EXIT_PT(e.id), [L, R] = T.members; const ix = e.id === 'V' ? 0 : -Math.sign(p[0]), iy = e.id === 'V' ? -1 : 0; const yaw = Math.atan2(iy, ix); const bx = p[0] - ix * 2 * k, by = p[1] - iy * 2 * k;
+        L.place(bx, by, yaw); R.place(bx - ix * 0.9, by - iy * 0.9, yaw); S.doorFlash[e.id] = now; T.out = [-ix, -iy]; T.virt = 0;
+        this.mark('entry', now); S.addLog('구조대 ' + (T.id + 1) + '조 진입: ' + NODE_NAME(e.id) + (this.loc ? ' → ' + (g.id === 'X' ? '대기 인원' : g.id) + ' ' + take.length + '명 (위치 정보로 바로 이동)' : ' (위치 정보 없음: 벽 따라 검색)'), 'r119');
+        if (e.locked && !T.trips) S.addLog(NODE_NAME(e.id) + ' 문 잠김: 구조대가 강제 개방', 'r119');
+      }
     }
   }
   // ---------------------------------------------------------------- team state machine

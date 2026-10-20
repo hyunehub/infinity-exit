@@ -455,7 +455,7 @@ function hlPhase() {
   return R.teams.some((T) => T.state === 'contact') ? 'mask' : 'in';
 }
 // fast where nothing changes (driving there), close to real time for the call, the truck pulling in and the masks
-function hlSpeed(ph) { const R = sim.rescue; return { call: 1, go: sim.t < R.eta - 3 ? 22 : 1.5, in: 10, mask: 1, out: 12 }[ph] || 1; }
+function hlSpeed(ph) { const R = sim.rescue; return { call: 1, go: sim.t < R.eta - 3 ? 22 : 1.5, in: 10, mask: 1, out: 20 }[ph] || 1; }
 function startHl() {
   if (!view.ready) return; story.stop(); setMode('hl'); setLayers({ mesh: false, ring: true, flow: false }); showCallouts([]);
   sim.reset(Object.assign({}, HL_COND)); afterReset(); const R = sim.rescue; for (let k = 0; R.detectAt == null && k < 900; k++) sim.step(); // skip ahead to people waiting at the SOS posts
