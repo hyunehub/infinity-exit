@@ -138,7 +138,8 @@ $('setX').onclick = () => openSettings(false);
 let lastIns = '';
 function applyInset() {
   const wr = wrap.getBoundingClientRect(); let px = 0, py = 0, L = 0;
-  if (mode === 'raw') px = (!cond.hidden && !mq.matches) ? 270 : 0;
+  if (app.classList.contains('ui-min')) { /* panels folded: the scene gets the whole view */ }
+  else if (mode === 'raw') px = (!cond.hidden && !mq.matches) ? 270 : 0;
   else if (mode === 'story') {
     const r = $('cap').getBoundingClientRect();
     if (mq.matches) py = Math.max(0, wr.bottom - r.top - 8); else { L = r.right - wr.left + 8; px = Math.max(0, L - 234); py = 70; }
@@ -262,7 +263,7 @@ function showCallouts(specs) {
   }
 }
 function updateCalloutPos() {
-  const placed = [], W = wrap.clientWidth; let topY = 36 + 50; if (mode === 'cases' && !mq.matches) { const r = $('cases').getBoundingClientRect(); topY = r.bottom - wrap.getBoundingClientRect().top + 48; /* keep labels below the cases bar */ } let cr = null; if ((mode === 'story' || mode === 'hl') && !mq.matches) { const r = (mode === 'hl' ? document.querySelector('.hl-cap') : $('cap')).getBoundingClientRect(), o = wrap.getBoundingClientRect(); cr = { r: r.right - o.left, t: r.top - o.top, b: r.bottom - o.top }; }
+  const placed = [], W = wrap.clientWidth; let topY = 36 + 50; if (mode === 'cases' && !mq.matches && !app.classList.contains('ui-min')) { const r = $('cases').getBoundingClientRect(); topY = r.bottom - wrap.getBoundingClientRect().top + 48; /* keep labels below the cases bar */ } let cr = null; if ((mode === 'story' || mode === 'hl') && !mq.matches && !app.classList.contains('ui-min')) { const r = (mode === 'hl' ? document.querySelector('.hl-cap') : $('cap')).getBoundingClientRect(), o = wrap.getBoundingClientRect(); cr = { r: r.right - o.left, t: r.top - o.top, b: r.bottom - o.top }; }
   for (const c of cos) {
     view.project(c.v, tmpV); if (!tmpV.vis) { c.el.style.visibility = 'hidden'; continue; } c.el.style.visibility = '';
     const w = c.el.offsetWidth || 160, hh = 36; let x = Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, tmpV.px)), y = Math.max(topY, tmpV.py - 6);
@@ -495,6 +496,10 @@ function hlCallCallouts() {
   const out = []; for (const id of ['S1', 'S2']) { const k = sim.agents.filter((a) => a.target === id && ['wait', 'press', 'go'].includes(a.state)).length; if (k) out.push({ key: 'hl' + id, text: id + ' SOS 대기 ' + k + '명', tone: 'blue', v: nodePos(id, new V3()).setY(2.6) }); }
   out.push({ key: 'hlK', text: '관리실 → 119 위치 전송', tone: 'red', v: new V3(-17.6, 13.4, -9.5) }); return out;
 }
+// fold / unfold the panels over the 3D view (button in the header, the small button on the view, or H)
+function setUiMin(on) { app.classList.toggle('ui-min', on); $('uiBtn').textContent = on ? 'UI 펼치기' : 'UI 접기'; $('uiBtn').setAttribute('aria-pressed', String(on)); lastIns = ''; applyInset(); try { localStorage.setItem('uiMin', on ? '1' : ''); } catch (e) { /* storage off */ } }
+$('uiBtn').onclick = () => setUiMin(!app.classList.contains('ui-min')); $('uiTog').onclick = () => setUiMin(false);
+addEventListener('keydown', (e) => { if (e.code !== 'KeyH' || e.target.closest('button,select,input') || e.ctrlKey || e.metaKey || e.altKey) return; e.preventDefault(); setUiMin(!app.classList.contains('ui-min')); });
 $('hlAgain').onclick = () => startHl(); $('hlClose').onclick = () => enterCases();
 addEventListener('keydown', (e) => {
   if (e.target.closest('button,select,input') || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -528,10 +533,11 @@ async function boot() {
   else if (md === 'story') enterLanding();
   else enterCases();
   $('speed').textContent = 'x' + sim.speed;
+  try { if (localStorage.getItem('uiMin')) setUiMin(true); } catch (e) { /* storage off */ }
   window.__v4.ready = true; window.__v4.firstFrame = performance.now(); window.__v4.assets = { lot: !!assets.lot, cars: !!assets.cars, person: !!assets.person };
 }
 window.__v4.setPreset = (i) => { presetSel.value = String(i); if (i >= 0) sim.preset(i); afterReset(); };
-window.__v4.afterReset = afterReset; window.__v4.setPlaying = setPlaying; window.__v4.story = story; window.__v4.ui = { snapCam: () => { if (view.tween) view.tween.t = 1; view.frame(0.0001); view.frame(0.0001); }, startStory, enterLanding, enterExp, enterCases, loadCase, setMode, startHl, hl: () => ({ ph: hl.ph, cap: $('hlT').textContent, sub: $('hlS').textContent, ff: $('hlFF').textContent, end: $('hlEnd').classList.contains('on') ? $('hlEnd').innerText : '' }), cap: () => ({ n: $('capN').textContent, t: $('capT').textContent, s: $('capS').textContent, tone: $('cap').dataset.tone }), result: () => $('result').innerText, mode: () => mode, callouts: () => [...$('callouts').querySelectorAll('.co.on')].map((e) => e.textContent) };
+window.__v4.afterReset = afterReset; window.__v4.setPlaying = setPlaying; window.__v4.story = story; window.__v4.ui = { snapCam: () => { if (view.tween) view.tween.t = 1; view.frame(0.0001); view.frame(0.0001); }, startStory, enterLanding, enterExp, enterCases, loadCase, setMode, startHl, setUiMin, hl: () => ({ ph: hl.ph, cap: $('hlT').textContent, sub: $('hlS').textContent, ff: $('hlFF').textContent, end: $('hlEnd').classList.contains('on') ? $('hlEnd').innerText : '' }), cap: () => ({ n: $('capN').textContent, t: $('capT').textContent, s: $('capS').textContent, tone: $('cap').dataset.tone }), result: () => $('result').innerText, mode: () => mode, callouts: () => [...$('callouts').querySelectorAll('.co.on')].map((e) => e.textContent) };
 // deterministic stepping for tests / screenshots
 window.__v4.advance = (sec, render = true) => { sim.advance(sec); updateInfo(); if (render) { view.frame(0.0001); view.frame(0.0001); view.people.mixers.forEach((m) => m.update(0.6)); view.frame(0.0001); } };
 window.__v4.step = (n = 1) => { for (let i = 0; i < n; i++) view.frame(0.05); };

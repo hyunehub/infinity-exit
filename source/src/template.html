@@ -429,6 +429,11 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
 .hl-card .t{margin-top:8px;font-family:var(--cr-mono);color:var(--cr-green);font-size:16px}
 .hl-card .bt{margin-top:20px;display:flex;gap:8px;justify-content:center}
 #modeHl.on{border-color:var(--cr-red);color:#fff}
+/* folded UI: only the 3D scene, its labels and a small button to bring the panels back */
+.uitog{display:none}
+.ui-min .uitog{display:block;position:absolute;right:12px;top:12px;z-index:8;font-size:13px;padding:6px 12px;background:var(--cr-panel);color:var(--cr-text);border:1px solid var(--cr-line-2)}
+.ui-min #cases,.ui-min .exp,.ui-min .r119,.ui-min .cap,.ui-min .flow,.ui-min .chbar,.ui-min .result,.ui-min .hl-cap,.ui-min .hl-steps,.ui-min .hl-ff,.ui-min .ov,.ui-min .cond{display:none!important}
+#uiBtn[aria-pressed="true"]{border-color:var(--cr-amber);color:var(--cr-amber)}
 @media (max-width:900px){.hl-cap{left:8px;right:8px;width:auto;top:8px}.hl-ff{top:auto;bottom:62px;right:8px}.hl-steps span{padding:4px 8px;font-size:12px}}
 </style>
 <div class="app mode-landing" id="app">
@@ -436,10 +441,11 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
     <h1><b>∞번 출구</b><span class="h-sub">스마트 대피 시뮬레이션</span><span class="h-loc">B3 지하주차장</span></h1>
     <div class="grp oldbar"><span class="lbl">자동 시나리오</span><select id="preset" aria-label="자동 시나리오"></select></div>
     <div class="grp oldbar"><button class="primary" id="play" aria-label="재생 또는 일시정지">▶ 시작</button><button id="reset" aria-label="처음부터 다시">⟲ 다시</button><button id="speed" aria-label="재생 속도">x1</button></div>
-    <div class="grp rbar"><button id="modeCases" class="seg-b" aria-label="경우의 수">경우의 수</button><button id="modeStory" class="seg-b" aria-label="스토리 모드">스토리</button><button id="modeExp" class="seg-b" aria-label="실험 모드">실험</button><button id="modeHl" class="seg-b hlb" aria-label="119 구조 장면 (단축키 R)" title="단축키 R">119 구조</button><button id="setBtn" aria-expanded="false" aria-label="보기 설정">보기 설정</button></div>
+    <div class="grp rbar"><button id="modeCases" class="seg-b" aria-label="경우의 수">경우의 수</button><button id="modeStory" class="seg-b" aria-label="스토리 모드">스토리</button><button id="modeExp" class="seg-b" aria-label="실험 모드">실험</button><button id="modeHl" class="seg-b hlb" aria-label="119 구조 장면 (단축키 R)" title="단축키 R">119 구조</button><button id="uiBtn" aria-pressed="false" title="단축키 H">UI 접기</button><button id="setBtn" aria-expanded="false" aria-label="보기 설정">보기 설정</button></div>
   </header>
   <div class="canvaswrap" id="wrap">
     <canvas id="cv" aria-label="지하주차장 3D 장면"></canvas>
+    <button class="uitog" id="uiTog" title="단축키 H">UI 펼치기</button>
     <button class="ov condbtn" id="condbtn" aria-expanded="false">조건</button>
     <div class="ov ov-steps" id="steps"><span>① 화재 감지</span><span>② 메시 전파</span><span>③ 안내 전환</span><span>④ 대피 이동</span></div>
     <div class="ov ov-views" id="views"><button data-v="over">전체</button><button data-v="top">위</button><button data-v="ramp">경사로</button><button data-v="stairs">계단</button><button data-v="sos">SOS</button></div>
