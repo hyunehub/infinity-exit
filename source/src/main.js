@@ -446,7 +446,7 @@ function enterCases() {
 // the case the physical model ends on: fire at every board A-D, no exit left (the boards show Emergency Escape), smoke on the ramp too
 const HL_COND = { fire: 'ABCD', smokeZ: '', vent: 'off', smoke: 'ceil', stairs: 'ok', ramp: 'dense', refuge: 'no', wind: 'auto', car: true, power: true, lost: null, doors: { E1: null, E2: null, E3: null, E4: null } };
 const HL_STEPS = [['call', '구조 요청'], ['go', '출동'], ['in', '진입'], ['mask', '접촉'], ['out', '함께 탈출']];
-const hl = { on: false, ph: null };
+const hl = { on: false, ph: null, mul: 1 }; // mul: the viewer's own speed setting, on top of each step's speed
 const hlSteps = $('hlSteps'); hlSteps.innerHTML = HL_STEPS.map(([k, n]) => `<span data-k="${k}">${n}</span>`).join('');
 function hlPhase() {
   const R = sim.rescue; if (R.doneAt != null) return 'end';
@@ -466,7 +466,7 @@ function startHl() {
 function hlUpdate(dt) {
   if (!hl.on) return; const ph = hlPhase();
   if (ph !== hl.ph) { hl.ph = ph; if (ph === 'end') { setPlaying(false); showCallouts([]); refreshHl(); $('hlEnd').classList.add('on'); } }
-  if (ph !== 'end') sim.speed = hlSpeed(ph);
+  if (ph !== 'end') sim.speed = hlSpeed(ph) * hl.mul;
   hlCam(dt);
 }
 // camera: whole car park while the call goes out and the truck drives up, then it follows the crew and the people with them
@@ -488,7 +488,7 @@ function refreshHl() {
     in: ['구조대 진입', '전송된 위치로 바로 찾아갑니다.'], mask: ['구조대 도착', '구조대가 무전으로 보고하고, 사람들은 젖은 수건을 댄 채 따라 나갈 준비를 합니다.'],
     out: ['구조대와 함께 탈출', `젖은 수건으로 코와 입을 막고, 낮은 자세로 앞 사람 어깨를 잡고 한 줄로 나갑니다. 구조 ${R.rescued} / ${n}명`], end: ['전원 구조 완료', `${n}명 모두 밖으로 나왔습니다.`] }[ph];
   $('hlT').textContent = T[0]; $('hlS').textContent = T[1];
-  const sp = ph === 'end' ? 1 : hlSpeed(ph); $('hlFF').textContent = sp > 1 ? '▶▶ ' + sp + '배 빠르게' : ''; $('hlFF').hidden = sp <= 1;
+  const sp = ph === 'end' ? 1 : +(hlSpeed(ph) * hl.mul).toFixed(2); $('hlFF').textContent = sp > 1 ? '▶▶ ' + sp + '배 빠르게' : sp < 1 ? '▶ ' + sp + '배 느리게' : ''; $('hlFF').hidden = sp === 1;
   const i = HL_STEPS.findIndex(([k]) => k === ph); hlSteps.querySelectorAll('span').forEach((el, j) => { el.className = ph === 'end' || j < i ? 'done' : j === i ? 'cur' : ''; });
   if (ph === 'end') { const secs = Math.round(R.doneAt - R.arrivedAt); $('hlEndN').textContent = `119 구조대와 함께 ${R.rescued}명 모두 밖으로 나왔습니다`; $('hlEndT').textContent = `구조대 도착 후 ${secs >= 60 ? Math.floor(secs / 60) + '분 ' : ''}${secs % 60}초 만에 탈출`; }
   else showCallouts(ph === 'call' ? hlCallCallouts() : rescueCallouts());
@@ -501,6 +501,7 @@ function hlCallCallouts() {
 function setUiMin(on) { app.classList.toggle('ui-min', on); $('uiBtn').textContent = on ? 'UI 펼치기' : 'UI 접기'; $('uiBtn').setAttribute('aria-pressed', String(on)); lastIns = ''; applyInset(); try { localStorage.setItem('uiMin', on ? '1' : ''); } catch (e) { /* storage off */ } }
 $('uiBtn').onclick = () => setUiMin(!app.classList.contains('ui-min')); $('uiTog').onclick = () => setUiMin(false);
 addEventListener('keydown', (e) => { if (e.code !== 'KeyH' || e.target.closest('button,select,input') || e.ctrlKey || e.metaKey || e.altKey) return; e.preventDefault(); setUiMin(!app.classList.contains('ui-min')); });
+$('hlSp').oninput = (e) => { hl.mul = +e.target.value; $('hlSpV').textContent = hl.mul + '배'; refreshHl(); }; $('hlSp').onchange = (e) => e.target.blur(); // give the keys (R, H, space) back
 $('hlAgain').onclick = () => startHl(); $('hlClose').onclick = () => enterCases();
 addEventListener('keydown', (e) => {
   if (e.target.closest('button,select,input') || e.ctrlKey || e.metaKey || e.altKey) return;
