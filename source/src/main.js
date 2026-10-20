@@ -157,9 +157,9 @@ function mountDom(raw) {
   else { setCam.appendChild(viewsEl); setBody.insertBefore(toolsEl, speedRow); moreBody.append(cond, infoEl); condbtn.style.display = 'none'; }
 }
 function setMode(m) {
-  mode = m; for (const x of ['raw', 'landing', 'story', 'exp', 'cases']) app.classList.toggle('mode-' + x, x === m || (x === 'exp' && m === 'cases'));
+  mode = m; for (const x of ['raw', 'landing', 'story', 'exp', 'cases', 'hl']) app.classList.toggle('mode-' + x, x === m || (x === 'exp' && m === 'cases'));
   app.classList.remove('show-result'); if (m !== 'story') app.classList.remove('cam-free');
-  mountDom(m === 'raw'); $('modeStory').classList.toggle('on', m === 'landing' || m === 'story'); $('modeExp').classList.toggle('on', m === 'exp'); $('modeCases').classList.toggle('on', m === 'cases'); openSettings(false);
+  mountDom(m === 'raw'); $('modeStory').classList.toggle('on', m === 'landing' || m === 'story'); $('modeExp').classList.toggle('on', m === 'exp'); $('modeCases').classList.toggle('on', m === 'cases'); $('modeHl').classList.toggle('on', m === 'hl'); openSettings(false); if (m !== 'hl') hl.on = false;
   if (m !== 'raw') { sim.speed = 1; speedRow.querySelectorAll('button').forEach((x) => x.classList.toggle('on', +x.dataset.sp === 1)); }
   lastIns = ''; applyInset();
 }
@@ -172,7 +172,7 @@ function setLayers(o) {
 $('cards').innerHTML = STORIES.map((s, i) => `<button class="card-b ${s.tone}" data-i="${i}" aria-label="${s.title}, ${s.sub}"><span class="ct">${s.title}</span><span class="cs">${s.sub}</span></button>`).join('');
 $('cards').addEventListener('click', (e) => { const b = e.target.closest('.card-b'); if (b) startStory(+b.dataset.i); });
 $('toExp').onclick = () => enterExp();
-$('modeStory').onclick = () => enterLanding(); $('modeExp').onclick = () => enterExp(); $('modeCases').onclick = () => enterCases();
+$('modeStory').onclick = () => enterLanding(); $('modeExp').onclick = () => enterExp(); $('modeCases').onclick = () => enterCases(); $('modeHl').onclick = () => startHl();
 function enterLanding() {
   if (!view.ready) return; story.stop(); setMode('landing'); sim.preset(0); sim.advance(3.5); afterReset(); setPlaying(false);
   setLayers({ mesh: false, ring: false, flow: false }); showCallouts([]); view.tween = null; view.camState.view = 'over'; view.setView('over', true);
@@ -262,7 +262,7 @@ function showCallouts(specs) {
   }
 }
 function updateCalloutPos() {
-  const placed = [], W = wrap.clientWidth; let topY = 36 + 50; if (mode === 'cases' && !mq.matches) { const r = $('cases').getBoundingClientRect(); topY = r.bottom - wrap.getBoundingClientRect().top + 48; /* keep labels below the cases bar */ } let cr = null; if (mode === 'story' && !mq.matches) { const r = $('cap').getBoundingClientRect(), o = wrap.getBoundingClientRect(); cr = { r: r.right - o.left, t: r.top - o.top, b: r.bottom - o.top }; }
+  const placed = [], W = wrap.clientWidth; let topY = 36 + 50; if (mode === 'cases' && !mq.matches) { const r = $('cases').getBoundingClientRect(); topY = r.bottom - wrap.getBoundingClientRect().top + 48; /* keep labels below the cases bar */ } let cr = null; if ((mode === 'story' || mode === 'hl') && !mq.matches) { const r = (mode === 'hl' ? document.querySelector('.hl-cap') : $('cap')).getBoundingClientRect(), o = wrap.getBoundingClientRect(); cr = { r: r.right - o.left, t: r.top - o.top, b: r.bottom - o.top }; }
   for (const c of cos) {
     view.project(c.v, tmpV); if (!tmpV.vis) { c.el.style.visibility = 'hidden'; continue; } c.el.style.visibility = '';
     const w = c.el.offsetWidth || 160, hh = 36; let x = Math.max(w / 2 + 6, Math.min(W - w / 2 - 6, tmpV.px)), y = Math.max(topY, tmpV.py - 6);
@@ -441,12 +441,74 @@ function enterCases() {
   applyInset(); view.tween = null; view.camState.view = 'story'; const p = overviewPose(); view.camera.position.copy(p.p); view.controls.target.copy(p.t); view.camera.fov = p.fov; view.camera.updateProjectionMatrix(); view.controls.update();
 }
 
-view.onBefore = () => { if (mode === 'story') story.update(); };
+// ---- 119 rescue highlight: one key (R) replays the rescue of story 4 in about 20 s and stops on an end card
+const HL_PRESET = STORIES[4].preset;
+const HL_STEPS = [['call', '구조 요청'], ['go', '출동'], ['in', '진입'], ['mask', '마스크 착용'], ['out', '함께 탈출']];
+const hl = { on: false, ph: null };
+const hlSteps = $('hlSteps'); hlSteps.innerHTML = HL_STEPS.map(([k, n]) => `<span data-k="${k}">${n}</span>`).join('');
+function hlPhase() {
+  const R = sim.rescue; if (R.doneAt != null) return 'end';
+  if (R.arrivedAt == null) return R.eta == null || sim.t < R.dispatchAt + 0.6 ? 'call' : 'go';
+  if (R.steps.escort != null) return 'out';
+  return R.teams.some((T) => T.state === 'contact') ? 'mask' : 'in';
+}
+// fast where nothing changes (driving there), close to real time for the call, the truck pulling in and the masks
+function hlSpeed(ph) { const R = sim.rescue; return { call: 1, go: sim.t < R.eta - 3 ? 22 : 1.5, in: 6, mask: 4, out: 12 }[ph] || 1; }
+function startHl() {
+  if (!view.ready) return; story.stop(); setMode('hl'); setLayers({ mesh: false, ring: true, flow: false }); showCallouts([]);
+  sim.preset(HL_PRESET); afterReset(); const R = sim.rescue; for (let k = 0; R.detectAt == null && k < 900; k++) sim.step(); // skip ahead to people waiting at the SOS posts
+  hl.on = true; hl.ph = null; $('hlEnd').classList.remove('on'); view.tween = null; view.camState.view = 'story';
+  const p = overviewPose(); view.camera.position.copy(p.p); view.controls.target.copy(p.t); view.camera.fov = p.fov; view.camera.updateProjectionMatrix(); view.controls.update();
+  setPlaying(true); hlUpdate(0); refreshHl();
+}
+function hlUpdate(dt) {
+  if (!hl.on) return; const ph = hlPhase();
+  if (ph !== hl.ph) { hl.ph = ph; if (ph === 'end') { setPlaying(false); showCallouts([]); refreshHl(); $('hlEnd').classList.add('on'); } }
+  if (ph !== 'end') sim.speed = hlSpeed(ph);
+  hlCam(dt);
+}
+// camera: whole car park while the call goes out and the truck drives up, then it follows the crew and the people with them
+const HL_DIR = new V3(0.35, 0.78, 0.52).normalize();
+function hlCam(dt) {
+  let want; const ph = hl.ph;
+  if (ph === 'call' || ph === 'go' || ph === 'end') want = overviewPose();
+  else {
+    const pts = []; for (const c of sim.crew) if (c.visible) pts.push(c); for (const a of sim.agents) if (a.visible && (a.state === 'rescued' || a.state === 'follow')) pts.push(a);
+    if (!pts.length) return; let x = 0, y = 0; for (const q of pts) { x += q.x; y += q.y; } x /= pts.length; y /= pts.length; let r = 0; for (const q of pts) r = Math.max(r, Math.hypot(q.x - x, q.y - y));
+    const t = new V3(x, rampZ(y) + 0.8, -y); want = { p: t.clone().addScaledVector(HL_DIR, Math.max(17, Math.min(46, 14 + r * 1.6))), t, fov: 40 };
+  }
+  const k = 1 - Math.exp(-Math.min(dt, 0.1) * 1.5); view.camera.position.lerp(want.p, k); view.controls.target.lerp(want.t, k); view.camera.fov += ((want.fov || 40) - view.camera.fov) * k; view.camera.updateProjectionMatrix();
+}
+function refreshHl() {
+  if (mode !== 'hl') return; const R = sim.rescue, n = sim.agents.length, ph = hl.ph || 'call';
+  const T = { call: ['SOS 위치를 119로 보냅니다', `나갈 길이 모두 막혀 ${sim.agents.filter((a) => a.state !== 'done').length}명이 SOS 구역에서 구조를 기다립니다. 관리실이 위치와 인원을 119에 자동으로 보냅니다.`],
+    go: ['119 출동', R.eta != null && sim.t < R.eta - 3 ? `구조대가 오는 중입니다. 도착까지 실제 약 ${Math.max(1, Math.round((R.eta - sim.t) * TIME_K / 60))}분` : '구조대가 도착했습니다.'],
+    in: ['구조대 진입', '전송된 위치로 바로 찾아갑니다.'], mask: ['보조 마스크 착용', '구조대가 한 사람씩 마스크를 씌워 줍니다.'],
+    out: ['구조대와 함께 탈출', `구조대를 따라 한 줄로 나갑니다. 구조 ${R.rescued} / ${n}명`], end: ['전원 구조 완료', `${n}명 모두 밖으로 나왔습니다.`] }[ph];
+  $('hlT').textContent = T[0]; $('hlS').textContent = T[1];
+  const sp = ph === 'end' ? 1 : hlSpeed(ph); $('hlFF').textContent = sp > 1 ? '▶▶ ' + sp + '배 빠르게' : ''; $('hlFF').hidden = sp <= 1;
+  const i = HL_STEPS.findIndex(([k]) => k === ph); hlSteps.querySelectorAll('span').forEach((el, j) => { el.className = ph === 'end' || j < i ? 'done' : j === i ? 'cur' : ''; });
+  if (ph === 'end') { const secs = Math.round(R.doneAt - R.arrivedAt); $('hlEndN').textContent = `119 구조대와 함께 ${R.rescued}명 모두 밖으로 나왔습니다`; $('hlEndT').textContent = `구조대 도착 후 ${secs >= 60 ? Math.floor(secs / 60) + '분 ' : ''}${secs % 60}초 만에 탈출`; }
+  else showCallouts(ph === 'call' ? hlCallCallouts() : rescueCallouts());
+}
+function hlCallCallouts() {
+  const out = []; for (const id of ['S1', 'S2']) { const k = sim.agents.filter((a) => a.target === id && ['wait', 'press', 'go'].includes(a.state)).length; if (k) out.push({ key: 'hl' + id, text: id + ' SOS 대기 ' + k + '명', tone: 'blue', v: nodePos(id, new V3()).setY(2.6) }); }
+  out.push({ key: 'hlK', text: '관리실 → 119 위치 전송', tone: 'red', v: new V3(-17.6, 13.4, -9.5) }); return out;
+}
+$('hlAgain').onclick = () => startHl(); $('hlClose').onclick = () => enterCases();
+addEventListener('keydown', (e) => {
+  if (e.target.closest('button,select,input') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.code === 'KeyR') { e.preventDefault(); startHl(); }
+  else if (mode === 'hl' && e.key === ' ') { e.preventDefault(); if (hl.ph !== 'end') setPlaying(!sim.playing); }
+  else if (mode === 'hl' && e.key === 'Escape') enterCases();
+});
+
+view.onBefore = (dt) => { if (mode === 'story') story.update(); else if (mode === 'hl') hlUpdate(dt); };
 view.onAfter = () => {
   if (mode === 'raw') return; updateCalloutPos();
   if (mode === 'exp') updatePicks(); else if (mode === 'story' && story.active) { const el = chs.children[story.k]; if (el) el.querySelector('u').style.width = (story.progress() * 100).toFixed(1) + '%'; }
 };
-setInterval(() => { if (!view.ready) return; refresh119(); if (mode === 'story' && story.active && story.k >= 5) refreshResult(); if (mode === 'story' && story.active) { refreshCaption(); showCallouts(calloutSpecs(story.k)); } else if (mode === 'exp') refreshExp(); else if (mode === 'cases') refreshCases(); }, 250);
+setInterval(() => { if (!view.ready) return; refresh119(); if (mode === 'story' && story.active && story.k >= 5) refreshResult(); if (mode === 'story' && story.active) { refreshCaption(); showCallouts(calloutSpecs(story.k)); } else if (mode === 'exp') refreshExp(); else if (mode === 'cases') refreshCases(); else if (mode === 'hl') refreshHl(); }, 250);
 addEventListener('resize', () => setTimeout(applyInset, 60));
 
 // ------------------------------------------------------------------ boot
@@ -462,13 +524,14 @@ async function boot() {
   if (P.get('preset') != null) { setMode('raw'); if (start >= 0) { presetSel.value = String(start); sim.preset(start); } else sim.reset({}); afterReset(); setPlaying(P.get('autoplay') !== '0'); }
   else if (sp != null) { startStory(Math.max(0, Math.min(5, +sp - 1))); const ch = P.get('chapter'); if (ch != null) story.setChapter(Math.max(0, Math.min(5, +ch - 1))); if (P.get('autoplay') === '0') { story.playing = false; sim.playing = false; syncPlayBtn(); } }
   else if (md === 'exp') enterExp();
+  else if (md === 'rescue') startHl();
   else if (md === 'story') enterLanding();
   else enterCases();
   $('speed').textContent = 'x' + sim.speed;
   window.__v4.ready = true; window.__v4.firstFrame = performance.now(); window.__v4.assets = { lot: !!assets.lot, cars: !!assets.cars, person: !!assets.person };
 }
 window.__v4.setPreset = (i) => { presetSel.value = String(i); if (i >= 0) sim.preset(i); afterReset(); };
-window.__v4.afterReset = afterReset; window.__v4.setPlaying = setPlaying; window.__v4.story = story; window.__v4.ui = { snapCam: () => { if (view.tween) view.tween.t = 1; view.frame(0.0001); view.frame(0.0001); }, startStory, enterLanding, enterExp, enterCases, loadCase, setMode, cap: () => ({ n: $('capN').textContent, t: $('capT').textContent, s: $('capS').textContent, tone: $('cap').dataset.tone }), result: () => $('result').innerText, mode: () => mode, callouts: () => [...$('callouts').querySelectorAll('.co.on')].map((e) => e.textContent) };
+window.__v4.afterReset = afterReset; window.__v4.setPlaying = setPlaying; window.__v4.story = story; window.__v4.ui = { snapCam: () => { if (view.tween) view.tween.t = 1; view.frame(0.0001); view.frame(0.0001); }, startStory, enterLanding, enterExp, enterCases, loadCase, setMode, startHl, hl: () => ({ ph: hl.ph, cap: $('hlT').textContent, sub: $('hlS').textContent, ff: $('hlFF').textContent, end: $('hlEnd').classList.contains('on') ? $('hlEnd').innerText : '' }), cap: () => ({ n: $('capN').textContent, t: $('capT').textContent, s: $('capS').textContent, tone: $('cap').dataset.tone }), result: () => $('result').innerText, mode: () => mode, callouts: () => [...$('callouts').querySelectorAll('.co.on')].map((e) => e.textContent) };
 // deterministic stepping for tests / screenshots
 window.__v4.advance = (sec, render = true) => { sim.advance(sec); updateInfo(); if (render) { view.frame(0.0001); view.frame(0.0001); view.people.mixers.forEach((m) => m.update(0.6)); view.frame(0.0001); } };
 window.__v4.step = (n = 1) => { for (let i = 0; i < n; i++) view.frame(0.05); };

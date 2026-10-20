@@ -404,13 +404,39 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
 .r119.min .pk,.r119.min ol,.r119.min .eta{display:none}
 .mode-landing .r119{display:none!important} .mode-story .r119{bottom:64px} .mode-exp .r119{left:auto;right:12px}
 @media (max-width:900px){.r119{left:8px;right:8px;bottom:8px;width:auto;font-size:11.5px}.r119 .pk{grid-template-columns:40px 1fr}}
+/* 119 rescue highlight */
+.mode-hl .oldbar{display:none} .mode-hl .rbar{display:flex;margin-left:auto}
+.mode-hl .condbtn,.mode-hl .ov-steps,.mode-hl .ov-legend,.mode-hl .ov-clock,.mode-hl .ov-alert,.mode-hl .ov-views,.mode-hl .r119,.mode-hl #more{display:none!important}
+.mode-hl .layer{display:block} .mode-hl .canvaswrap{height:max(560px,calc(100vh - 84px))}
+.hl{display:none} .mode-hl .hl{display:block}
+.hl-cap{position:absolute;left:14px;top:14px;z-index:7;width:min(460px,46%);background:var(--cr-panel);border:1px solid var(--cr-line);border-left:3px solid var(--cr-red);color:var(--cr-text);padding:12px 16px 14px;box-shadow:0 6px 24px rgba(0,0,0,.45)}
+.hl-k{font-family:var(--cr-mono);font-size:12px;font-weight:600;color:var(--cr-red);letter-spacing:.08em}
+.hl-cap b{display:block;font-size:clamp(20px,1.8vw,26px);margin:2px 0 4px;color:#fff}
+.hl-cap p{margin:0;font-size:clamp(14px,1.1vw,17px);color:var(--cr-text);opacity:.85;line-height:1.45}
+.hl-ff{position:absolute;right:14px;top:14px;z-index:7;font-family:var(--cr-mono);font-size:15px;font-weight:600;color:var(--cr-amber);border:1px solid var(--cr-amber);background:var(--cr-panel);padding:4px 10px}
+.hl-ff[hidden]{display:none}
+.hl-steps{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);z-index:7;display:flex;gap:4px;background:var(--cr-panel);border:1px solid var(--cr-line);padding:6px;max-width:calc(100% - 24px);overflow-x:auto}
+.hl-steps span{font-size:13px;padding:5px 12px;color:var(--cr-dim);border:1px solid transparent;white-space:nowrap}
+.hl-steps span.done{color:var(--cr-text)} .hl-steps span.done::before{content:"✓ ";color:var(--cr-green)}
+.hl-steps span.cur{color:#fff;border-color:var(--cr-red);background:rgba(233,73,59,.18)}
+.hl-end{position:absolute;inset:0;z-index:9;display:none;place-items:center;background:rgba(6,9,12,.55)}
+.hl-end.on{display:grid;animation:hlIn .7s ease both}
+@keyframes hlIn{from{opacity:0}to{opacity:1}}
+.hl-card{background:var(--cr-panel);border:1px solid var(--cr-line);padding:30px 40px 26px;text-align:center;width:min(460px,calc(100% - 32px));box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.hl-sign{display:inline-flex;gap:14px;align-items:center;justify-content:center;width:150px;height:84px;background:#17924f;color:#fff;font-size:50px;font-weight:700;border-radius:8px;box-shadow:0 0 34px rgba(57,197,108,.55);margin-bottom:18px}
+.hl-card h2{margin:0 0 8px;font-size:clamp(28px,3vw,40px);color:#fff}
+.hl-card p{margin:0;color:var(--cr-text);font-size:17px;line-height:1.5}
+.hl-card .t{margin-top:8px;font-family:var(--cr-mono);color:var(--cr-green);font-size:16px}
+.hl-card .bt{margin-top:20px;display:flex;gap:8px;justify-content:center}
+#modeHl.on{border-color:var(--cr-red);color:#fff}
+@media (max-width:900px){.hl-cap{left:8px;right:8px;width:auto;top:8px}.hl-ff{top:auto;bottom:62px;right:8px}.hl-steps span{padding:4px 8px;font-size:12px}}
 </style>
 <div class="app mode-landing" id="app">
   <header class="bar">
     <h1><b>∞번 출구</b><span class="h-sub">스마트 대피 시뮬레이션</span><span class="h-loc">B3 지하주차장</span></h1>
     <div class="grp oldbar"><span class="lbl">자동 시나리오</span><select id="preset" aria-label="자동 시나리오"></select></div>
     <div class="grp oldbar"><button class="primary" id="play" aria-label="재생 또는 일시정지">▶ 시작</button><button id="reset" aria-label="처음부터 다시">⟲ 다시</button><button id="speed" aria-label="재생 속도">x1</button></div>
-    <div class="grp rbar"><button id="modeCases" class="seg-b" aria-label="경우의 수">경우의 수</button><button id="modeStory" class="seg-b" aria-label="스토리 모드">스토리</button><button id="modeExp" class="seg-b" aria-label="실험 모드">실험</button><button id="setBtn" aria-expanded="false" aria-label="보기 설정">보기 설정</button></div>
+    <div class="grp rbar"><button id="modeCases" class="seg-b" aria-label="경우의 수">경우의 수</button><button id="modeStory" class="seg-b" aria-label="스토리 모드">스토리</button><button id="modeExp" class="seg-b" aria-label="실험 모드">실험</button><button id="modeHl" class="seg-b hlb" aria-label="119 구조 장면 (단축키 R)" title="단축키 R">119 구조</button><button id="setBtn" aria-expanded="false" aria-label="보기 설정">보기 설정</button></div>
   </header>
   <div class="canvaswrap" id="wrap">
     <canvas id="cv" aria-label="지하주차장 3D 장면"></canvas>
@@ -424,6 +450,12 @@ footer{color:var(--cr-dim)} footer .warn{color:var(--cr-text)}
 
     <div class="layer" id="callouts"></div>
     <section class="r119" id="r119" hidden aria-live="polite"></section>
+    <div class="hl" id="hl">
+      <section class="hl-cap" aria-live="polite"><span class="hl-k">119 구조</span><b id="hlT"></b><p id="hlS"></p></section>
+      <div class="hl-ff" id="hlFF" hidden></div>
+      <div class="hl-steps" id="hlSteps"></div>
+      <div class="hl-end" id="hlEnd"><div class="hl-card"><div class="hl-sign"><span>∞</span><span>→</span></div><h2>전원 구조 완료</h2><p id="hlEndN"></p><p class="t" id="hlEndT"></p><div class="bt"><button id="hlAgain">다시 보기 (R)</button><button id="hlClose" class="primary">닫기</button></div></div></div>
+    </div>
 
     <section class="cap" id="cap" data-tone="red" aria-live="polite">
       <div class="cap-h"><span class="cap-n" id="capN">1</span><b id="capT">화재 발생</b></div>
